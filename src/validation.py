@@ -23,6 +23,8 @@ Checks performed per topic:
      markers, a final video marker, and the new production_plan asset fields.
  12. (MVP 1.6) production_checklist.md exists, is not empty, and contains the
      key section headings.
+ 13. (MVP 2.0) assets/audio/voiceover_request.json exists, is valid JSON, and
+     contains the required voiceover-request fields.
 """
 
 from __future__ import annotations
@@ -51,6 +53,16 @@ REQUIRED_CHECKLIST_SECTIONS = (
     "Финалды монтаж",
     "Сапаны тексеру",
     "YouTube metadata",
+)
+
+# (MVP 2.0) Required keys in assets/audio/voiceover_request.json.
+REQUIRED_VOICEOVER_REQUEST_KEYS = (
+    "topic_slug",
+    "language",
+    "voice_name",
+    "source_text_file",
+    "expected_output_file",
+    "text",
 )
 
 REQUIRED_PRODUCTION_PLAN_KEYS = (
@@ -315,6 +327,24 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
                     result.add_error(
                         f"production_checklist.md is missing section: {section}"
                     )
+
+    # 13. (MVP 2.0) voiceover_request.json: exists, valid JSON, required fields.
+    request_rel = "assets/audio/voiceover_request.json"
+    request_path = output_dir / "assets" / "audio" / "voiceover_request.json"
+    if not request_path.is_file():
+        result.add_error(f"missing file: {request_rel}")
+    else:
+        try:
+            request = _load_json(request_path)
+        except json.JSONDecodeError as exc:
+            result.add_error(f"{request_rel} is not valid JSON: {exc}")
+        else:
+            if not isinstance(request, dict):
+                result.add_error(f"{request_rel} must be a JSON object")
+            else:
+                for key in REQUIRED_VOICEOVER_REQUEST_KEYS:
+                    if key not in request:
+                        result.add_error(f"{request_rel} is missing key: {key}")
 
     return result
 

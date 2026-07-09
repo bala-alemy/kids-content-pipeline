@@ -1,0 +1,6 @@
+{
+  "voice_provider": "mock",
+  "voice_language": "kk",
+  "voice_name": "default_child_friendly",
+  "output_audio_format": "mp3"
+}

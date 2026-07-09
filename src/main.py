@@ -39,8 +39,33 @@ from generator import (
     slugify,
 )
 from validation import format_report, validate_topic
+from voice_generator import generate_voiceover as prepare_voiceover_generation
 
-INPUT_PATH = Path(__file__).resolve().parent.parent / "input" / "topics.json"
+ROOT = Path(__file__).resolve().parent.parent
+INPUT_PATH = ROOT / "input" / "topics.json"
+SETTINGS_PATH = ROOT / "config" / "settings.json"
+
+DEFAULT_SETTINGS = {
+    "voice_provider": "mock",
+    "voice_language": "kk",
+    "voice_name": "default_child_friendly",
+    "output_audio_format": "mp3",
+}
+
+
+def load_settings() -> dict:
+    """Load config/settings.json, falling back to safe mock defaults."""
+    if not SETTINGS_PATH.exists():
+        print(f"Settings file not found, using mock defaults: {SETTINGS_PATH}")
+        return dict(DEFAULT_SETTINGS)
+
+    with SETTINGS_PATH.open(encoding="utf-8") as f:
+        settings = json.load(f)
+
+    # Fill any missing keys with defaults so downstream code is safe.
+    merged = dict(DEFAULT_SETTINGS)
+    merged.update(settings)
+    return merged
 
 
 def load_topics() -> list[dict]:
@@ -69,7 +94,7 @@ def load_topics() -> list[dict]:
     return topics
 
 
-def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
+def process_topic(topic: str, topic_type: str, settings: dict) -> tuple[str, Path]:
     topic_type = normalize_topic_type(topic_type)
     slug = slugify(topic)
     output_dir = get_topic_output_dir(slug)
@@ -110,6 +135,9 @@ def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     # later production step would fill in.
     write_asset_placeholders(output_dir, scenes)
 
+    # MVP 2.0: prepare the voiceover TTS request (mock mode = local, no API).
+    prepare_voiceover_generation(output_dir, slug, settings, voiceover)
+
     print(f"[OK] {topic!r} ({topic_type}) -> output/{slug}/")
     return slug, output_dir
 
@@ -134,11 +162,16 @@ def write_asset_placeholders(output_dir: Path, scenes: list[dict]) -> None:
 
 def main() -> None:
     topics = load_topics()
-    print(f"Found {len(topics)} topic(s) in input/topics.json\n")
+    settings = load_settings()
+    print(f"Found {len(topics)} topic(s) in input/topics.json")
+    print(f"Voice provider: {settings['voice_provider']} "
+          f"(language: {settings['voice_language']})\n")
 
     results = []
     for topic in topics:
-        slug, output_dir = process_topic(topic["title"], topic["topic_type"])
+        slug, output_dir = process_topic(
+            topic["title"], topic["topic_type"], settings
+        )
         results.append(validate_topic(topic["title"], slug, output_dir))
 
     print("\nDone. See the output/ folder for generated files.")

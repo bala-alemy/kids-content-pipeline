@@ -504,6 +504,8 @@ ASSET_DIRS = {
 EXPECTED_VOICEOVER_FILE = "assets/audio/voiceover.mp3"
 EXPECTED_MUSIC_FILE = "assets/audio/music.mp3"
 EXPECTED_FINAL_VIDEO_FILE = "assets/final/final_video.mp4"
+# (MVP 2.0) The voice-generation request prepared for a later TTS step.
+VOICEOVER_REQUEST_FILE = "assets/audio/voiceover_request.json"
 
 
 def scene_image_file(scene_number: int) -> str:
@@ -566,6 +568,7 @@ def generate_production_plan(
             "expected_voiceover_file": EXPECTED_VOICEOVER_FILE,
             "expected_music_file": EXPECTED_MUSIC_FILE,
             "expected_final_video_file": EXPECTED_FINAL_VIDEO_FILE,
+            "voiceover_request_file": VOICEOVER_REQUEST_FILE,
         },
         "scenes": plan_scenes,
         "timeline": timeline,
