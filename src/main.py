@@ -30,6 +30,7 @@ from generator import (
     normalize_topic_type,
     slugify,
 )
+from validation import format_report, validate_topic
 
 INPUT_PATH = Path(__file__).resolve().parent.parent / "input" / "topics.json"
 
@@ -60,7 +61,7 @@ def load_topics() -> list[dict]:
     return topics
 
 
-def process_topic(topic: str, topic_type: str) -> None:
+def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     topic_type = normalize_topic_type(topic_type)
     slug = slugify(topic)
     output_dir = get_topic_output_dir(slug)
@@ -82,16 +83,25 @@ def process_topic(topic: str, topic_type: str) -> None:
     write_json_file(output_dir, "metadata.json", metadata)
 
     print(f"[OK] {topic!r} ({topic_type}) -> output/{slug}/")
+    return slug, output_dir
 
 
 def main() -> None:
     topics = load_topics()
     print(f"Found {len(topics)} topic(s) in input/topics.json\n")
 
+    results = []
     for topic in topics:
-        process_topic(topic["title"], topic["topic_type"])
+        slug, output_dir = process_topic(topic["title"], topic["topic_type"])
+        results.append(validate_topic(topic["title"], slug, output_dir))
 
     print("\nDone. See the output/ folder for generated files.")
+
+    print(format_report(results))
+
+    # Non-zero exit code if any topic failed validation, so CI/scripts notice.
+    if any(not result.ok for result in results):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
