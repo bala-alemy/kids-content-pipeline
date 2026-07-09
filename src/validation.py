@@ -13,6 +13,8 @@ Checks performed per topic:
   6. voiceover.txt is not empty.
   7. script.txt is not empty.
   8. metadata.json contains all required keys.
+  9. (MVP 1.3) prompts/ folder exists with one image prompt per scene,
+     plus music_prompt.txt and video_style_prompt.txt.
 """
 
 from __future__ import annotations
@@ -90,6 +92,7 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
             result.add_error(f"{name} is empty")
 
     # 2 & 4 & 5. scenes.json valid JSON + per-scene field/duration checks.
+    scenes: list | None = None
     scenes_path = output_dir / "scenes.json"
     if scenes_path.is_file():
         try:
@@ -130,6 +133,23 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
                 for key in REQUIRED_METADATA_KEYS:
                     if key not in metadata:
                         result.add_error(f"metadata.json is missing key: {key}")
+
+    # 9. (MVP 1.3) prompts/ folder: per-scene image prompts + shared prompts.
+    prompts_dir = output_dir / "prompts"
+    if not prompts_dir.is_dir():
+        result.add_error("missing folder: prompts/")
+    else:
+        if isinstance(scenes, list) and scenes:
+            for index, scene in enumerate(scenes, start=1):
+                number = scene.get("scene_number") if isinstance(scene, dict) else None
+                if not isinstance(number, int):
+                    number = index
+                name = f"prompts/scene_{number:02d}_image_prompt.txt"
+                if not (output_dir / name).is_file():
+                    result.add_error(f"missing file: {name}")
+        for name in ("music_prompt.txt", "video_style_prompt.txt"):
+            if not (prompts_dir / name).is_file():
+                result.add_error(f"missing file: prompts/{name}")
 
     return result
 

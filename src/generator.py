@@ -407,6 +407,39 @@ no copyrighted melodies or references.
 """
 
 
+def generate_video_style_prompt(topic: str, topic_type: str = "general") -> str:
+    """Generate a single overall visual-style prompt for the whole video.
+
+    Describes the shared look of the cartoon: the original mascot, a soft
+    kid-friendly style, bright colors, and toddler safety, with an explicit
+    no-third-party-content constraint."""
+    topic_type = normalize_topic_type(topic_type)
+    label = TOPIC_TYPE_LABELS[topic_type]
+    return f"""VIDEO STYLE PROMPT (theme: {topic} / topic type: {label})
+
+Overall visual style:
+- Flat vector children's cartoon, soft rounded shapes, thick friendly outlines.
+- Bright, warm pastel color palette; cheerful and cozy lighting.
+- Simple, uncluttered backgrounds so young children stay focused.
+- Gentle, smooth animation; slow, calm pacing suitable for toddlers.
+
+Original character:
+- Mascot: {MASCOT_NAME}, {MASCOT_DESC} (a fully original, invented character).
+- Consistent design of {MASCOT_NAME} across every scene.
+
+Audience & safety:
+- Made for children aged 3-5.
+- Kind, positive, non-scary mood; nothing violent, dark, or frightening.
+- Large, clear shapes and faces with friendly expressions.
+
+Constraints (must always hold):
+- No third-party or existing characters.
+- No real brands, logos, trademarks, or watermarks.
+- No copyrighted material, footage, music, or references.
+- Fully original characters, settings, and props only.
+"""
+
+
 def generate_metadata(topic: str, topic_type: str, scenes: list[dict]) -> dict:
     """Generate metadata.json content: title, description, tags, language,
     target_age, duration_minutes."""

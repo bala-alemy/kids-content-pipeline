@@ -15,6 +15,13 @@ def get_topic_output_dir(slug: str) -> Path:
     return topic_dir
 
 
+def get_subdir(parent: Path, name: str) -> Path:
+    """Return (and create) a subdirectory inside the given parent directory."""
+    subdir = parent / name
+    subdir.mkdir(parents=True, exist_ok=True)
+    return subdir
+
+
 def write_text_file(directory: Path, filename: str, content: str) -> Path:
     """Write a UTF-8 text file inside the given directory."""
     file_path = directory / filename

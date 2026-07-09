@@ -18,7 +18,12 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from file_writer import get_topic_output_dir, write_json_file, write_text_file
+from file_writer import (
+    get_subdir,
+    get_topic_output_dir,
+    write_json_file,
+    write_text_file,
+)
 from generator import (
     generate_image_prompts,
     generate_metadata,
@@ -26,6 +31,7 @@ from generator import (
     generate_scenes,
     generate_script,
     generate_song,
+    generate_video_style_prompt,
     generate_voiceover,
     normalize_topic_type,
     slugify,
@@ -73,6 +79,7 @@ def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     image_prompts = generate_image_prompts(topic, scenes)
     music_prompt = generate_music_prompt(topic)
     metadata = generate_metadata(topic, topic_type, scenes)
+    video_style_prompt = generate_video_style_prompt(topic, topic_type)
 
     write_text_file(output_dir, "script.txt", script)
     write_text_file(output_dir, "song.txt", song)
@@ -81,6 +88,14 @@ def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     write_json_file(output_dir, "image_prompts.json", image_prompts)
     write_text_file(output_dir, "music_prompt.txt", music_prompt)
     write_json_file(output_dir, "metadata.json", metadata)
+
+    # MVP 1.3: per-scene image prompts + shared prompts in a prompts/ folder.
+    prompts_dir = get_subdir(output_dir, "prompts")
+    for scene in scenes:
+        filename = f"scene_{scene['scene_number']:02d}_image_prompt.txt"
+        write_text_file(prompts_dir, filename, scene["image_prompt"] + "\n")
+    write_text_file(prompts_dir, "music_prompt.txt", music_prompt)
+    write_text_file(prompts_dir, "video_style_prompt.txt", video_style_prompt)
 
     print(f"[OK] {topic!r} ({topic_type}) -> output/{slug}/")
     return slug, output_dir
