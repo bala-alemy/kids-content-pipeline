@@ -21,6 +21,8 @@ Checks performed per topic:
  11. (MVP 1.5) assets/ folder tree exists (images/audio/video/final) with a
      .placeholder marker per scene image & video, voiceover/music audio
      markers, a final video marker, and the new production_plan asset fields.
+ 12. (MVP 1.6) production_checklist.md exists, is not empty, and contains the
+     key section headings.
 """
 
 from __future__ import annotations
@@ -38,6 +40,17 @@ REQUIRED_FILES = (
     "music_prompt.txt",
     "metadata.json",
     "production_plan.json",
+    "production_checklist.md",
+)
+
+# (MVP 1.6) Section headings that must appear in production_checklist.md.
+REQUIRED_CHECKLIST_SECTIONS = (
+    "Сценарий және озвучка",
+    "Музыка",
+    "Картинки",
+    "Финалды монтаж",
+    "Сапаны тексеру",
+    "YouTube metadata",
 )
 
 REQUIRED_PRODUCTION_PLAN_KEYS = (
@@ -289,6 +302,19 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
     ):
         if not (output_dir / marker).is_file():
             result.add_error(f"missing file: {marker}")
+
+    # 12. (MVP 1.6) production_checklist.md: non-empty + key sections present.
+    checklist_path = output_dir / "production_checklist.md"
+    if checklist_path.is_file():
+        checklist_text = checklist_path.read_text(encoding="utf-8")
+        if not checklist_text.strip():
+            result.add_error("production_checklist.md is empty")
+        else:
+            for section in REQUIRED_CHECKLIST_SECTIONS:
+                if section not in checklist_text:
+                    result.add_error(
+                        f"production_checklist.md is missing section: {section}"
+                    )
 
     return result
 

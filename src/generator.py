@@ -576,3 +576,105 @@ def generate_production_plan(
             "child_safe": True,
         },
     }
+
+
+def generate_production_checklist(
+    topic: str, topic_type: str, scenes: list[dict], metadata: dict
+) -> str:
+    """Generate production_checklist.md: a clear, step-by-step manual guide
+    for turning the already-generated files into a finished video.
+
+    The section headings here are also what validation.py looks for, so keep
+    them stable if you change wording."""
+    topic_type = normalize_topic_type(topic_type)
+    label = TOPIC_TYPE_LABELS[topic_type]
+    scene_count = len(scenes)
+
+    # Per-scene lines for the image and video steps.
+    image_lines = "\n".join(
+        f"  - [ ] Сцена {scene['scene_number']:02d}: "
+        f"`prompts/scene_{scene['scene_number']:02d}_image_prompt.txt` → "
+        f"`{scene_image_file(scene['scene_number'])}`"
+        for scene in scenes
+    )
+    video_lines = "\n".join(
+        f"  - [ ] Сцена {scene['scene_number']:02d} "
+        f"({scene['duration_seconds']} сек) → "
+        f"`{scene_video_file(scene['scene_number'])}`"
+        for scene in scenes
+    )
+
+    return f"""# Өндіріс чек-парағы (production checklist)
+
+Бұл — қолмен ролик жасауға арналған қадамдық нұсқаулық. Барлық қажетті мәтін,
+промпт және жоспар файлдары осы қалтада алдын ала генерацияланған. Нақты
+сурет/аудио/видео осы пайплайнмен жасалмайды — оларды сіз осы қадамдар бойынша
+өзіңіз (немесе оригинал контент жасайтын құралмен) дайындайсыз.
+
+## 1. Ролик туралы ақпарат
+
+- **Тақырып:** {topic}
+- **target_age:** {metadata.get("target_age", "3-5")}
+- **duration_minutes:** {metadata.get("duration_minutes", "?")}
+- **topic_type:** {topic_type} ({label})
+- **Сцена саны:** {scene_count}
+
+## 2. Сценарий және озвучка
+
+- [ ] `script.txt` тексеру (толық сценарий).
+- [ ] `voiceover.txt` тексеру (тек дауыстап оқитын мәтін).
+- [ ] `voiceover.txt` бойынша дауысты жазып алу немесе генерациялау
+      (оригинал дауыс, қазақ тілінде, 3-5 жасқа қарапайым).
+- [ ] Нәтижені `assets/audio/voiceover.mp3` ретінде сақтау.
+
+## 3. Музыка
+
+- [ ] `music_prompt.txt` ашу.
+- [ ] Промпт бойынша **оригинал** музыка генерациялау (үлгі/сэмпл көшірмесіз).
+- [ ] Нәтижені `assets/audio/music.mp3` ретінде сақтау.
+
+## 4. Картинки
+
+Әр сцена үшін:
+
+{image_lines}
+
+- [ ] Әр `prompts/scene_XX_image_prompt.txt` промптын ашу.
+- [ ] Әр сценаға сурет генерациялау.
+- [ ] Әр суретті `assets/images/scene_XX.png` ретінде сақтау.
+
+## 5. Видео-сценалар
+
+Әр сцена үшін:
+
+{video_lines}
+
+- [ ] `production_plan.json` пайдалану (сцена ұзақтығы мен нұсқаулары).
+- [ ] Әр сценаға қысқа видео жасау.
+- [ ] Әр видеоны `assets/video/scene_XX.mp4` ретінде сақтау.
+
+## 6. Финалды монтаж
+
+- [ ] `production_plan.json` ішіндегі `timeline` бойынша сценаларды рет-ретімен
+      біріктіру.
+- [ ] `assets/audio/voiceover.mp3` қосу.
+- [ ] `assets/audio/music.mp3` қосу (фон ретінде, дауыстан тыныш).
+- [ ] `final_video.mp4` ретінде экспорттау.
+- [ ] Нәтижені `assets/final/final_video.mp4` ретінде сақтау.
+
+## 7. Сапаны тексеру
+
+- [ ] Персонаж (Ақжелең) барлық сценада бірдей көрінеді.
+- [ ] Бөгде персонаждар, брендтер, логотиптер жоқ.
+- [ ] Қорқынышты сценалар жоқ.
+- [ ] Сөйлеу 3-5 жасқа қарапайым және түсінікті.
+- [ ] Музыка оригинал.
+- [ ] Видео YouTube Kids үшін қауіпсіз.
+
+## 8. YouTube metadata
+
+- [ ] `metadata.json` пайдалану.
+- [ ] `title` тексеру: {metadata.get("title", topic)}
+- [ ] `description` тексеру.
+- [ ] `tags` тексеру.
+"""

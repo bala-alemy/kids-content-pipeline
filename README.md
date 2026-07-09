@@ -1,4 +1,4 @@
-# kids-content-pipeline (MVP 1.5)
+# kids-content-pipeline (MVP 1.6)
 
 MVP-пайплайн: тақырып бойынша қазақ тіліндегі оригинал балалар YouTube-роликінің
 құрылымын генерациялайды (3-5 жас аралығына арналған). Бұл нұсқада бейне
@@ -20,6 +20,11 @@ MVP 1.5-те әр тақырыпта **`assets/`** қалта ағашы (`image
 кейінгі өндіріс қадамы толтыратын орынды резервтейтін бос белгілер; нақты
 сурет/аудио/видео генерацияланбайды әрі жүктелмейді.
 
+MVP 1.6-да әр тақырыпта **`production_checklist.md`** жасалады — алдын ала
+генерацияланған файлдар негізінде ролікті қолмен құрастыруға арналған қадамдық,
+түсінікті нұсқаулық (озвучка → музыка → суреттер → видео → монтаж → сапаны
+тексеру → YouTube metadata).
+
 ## Мүмкіндіктер
 
 Әр тақырып үшін мыналар генерацияланады:
@@ -36,6 +41,8 @@ MVP 1.5-те әр тақырыпта **`assets/`** қалта ағашы (`image
    language, target_age, duration_minutes)
 8. **production_plan.json** — бүкіл роликтің біріктірілген өндіріс жоспары
    (metadata, assets, scenes, timeline, quality_notes)
+9. **production_checklist.md** — ролікті қолмен құрастыруға арналған қадамдық
+   нұсқаулық (Markdown)
 
 Барлық нәтижелер `output/{topic_slug}/` қалтасына сақталады.
 
@@ -130,6 +137,30 @@ output/{topic_slug}/assets/
 `.placeholder` файлдарының мазмұны бос — олар тек болашақ нақты файлдардың
 (`scene_01.png`, `voiceover.mp3`, `final_video.mp4` және т.б.) орнын белгілейді.
 
+### production_checklist.md (MVP 1.6)
+
+Алдын ала генерацияланған файлдар негізінде ролікті **қолмен** құрастыруға
+арналған қадамдық Markdown-нұсқаулық. Бөлімдері:
+
+1. **Ролик туралы ақпарат** — тақырып, `target_age`, `duration_minutes`,
+   `topic_type`.
+2. **Сценарий және озвучка** — `script.txt`/`voiceover.txt` тексеру, дауысты
+   `assets/audio/voiceover.mp3` етіп сақтау.
+3. **Музыка** — `music_prompt.txt` бойынша оригинал музыканы
+   `assets/audio/music.mp3` етіп сақтау.
+4. **Картинки** — әр `prompts/scene_XX_image_prompt.txt` бойынша суретті
+   `assets/images/scene_XX.png` етіп сақтау.
+5. **Видео-сценалар** — `production_plan.json` бойынша әр сцена видеосын
+   `assets/video/scene_XX.mp4` етіп сақтау.
+6. **Финалды монтаж** — `timeline` бойынша жинау, voiceover + music қосу,
+   `assets/final/final_video.mp4` етіп экспорттау.
+7. **Сапаны тексеру** — персонаж бірізділігі, бөгде контент/бренд жоқтығы,
+   қорқынышты сцена жоқтығы, тіл қарапайымдығы, YouTube Kids қауіпсіздігі.
+8. **YouTube metadata** — `metadata.json` бойынша `title`/`description`/`tags`
+   тексеру.
+
+Әр сцена нақты файл атауларымен және ұзақтығымен тізімделеді (checkbox түрінде).
+
 ## topic_type — тақырып түрлері
 
 `input/topics.json` файлындағы әр тақырыпта `topic_type` өрісі болады. Ол
@@ -183,6 +214,9 @@ output/{topic_slug}/assets/
     `assets/final/final_video.mp4.placeholder` бар; сондай-ақ
     `production_plan.json` ішіндегі жаңа ассет өрістері (assets секциясында
     және әр сценада) бар.
+12. (MVP 1.6) `production_checklist.md` бар әрі бос емес; ішінде негізгі
+    бөлімдер бар: «Сценарий және озвучка», «Музыка», «Картинки»,
+    «Финалды монтаж», «Сапаны тексеру», «YouTube metadata».
 
 Нәтижесінде консольге әр тақырып бойынша `[PASS]` / `[FAIL]` есебі және
 жиынтық қорытынды шығады. Кемінде бір тақырып тексеруден өтпесе, бағдарлама
@@ -243,6 +277,7 @@ kids-content-pipeline/
         ├── music_prompt.txt
         ├── metadata.json
         ├── production_plan.json  # MVP 1.4: біріктірілген өндіріс жоспары
+        ├── production_checklist.md  # MVP 1.6: қолмен құрастыру нұсқаулығы
         ├── prompts/         # MVP 1.3: бөлек промпт-файлдар
         │   ├── scene_01_image_prompt.txt
         │   ├── ...
