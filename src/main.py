@@ -100,8 +100,31 @@ def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     write_text_file(prompts_dir, "music_prompt.txt", music_prompt)
     write_text_file(prompts_dir, "video_style_prompt.txt", video_style_prompt)
 
+    # MVP 1.5: assets/ folder tree with empty ".placeholder" markers. No real
+    # images/audio/video are ever produced — these just reserve the layout a
+    # later production step would fill in.
+    write_asset_placeholders(output_dir, scenes)
+
     print(f"[OK] {topic!r} ({topic_type}) -> output/{slug}/")
     return slug, output_dir
+
+
+def write_asset_placeholders(output_dir: Path, scenes: list[dict]) -> None:
+    """Create the assets/ directory tree and empty placeholder markers."""
+    assets_dir = get_subdir(output_dir, "assets")
+    images_dir = get_subdir(assets_dir, "images")
+    audio_dir = get_subdir(assets_dir, "audio")
+    video_dir = get_subdir(assets_dir, "video")
+    final_dir = get_subdir(assets_dir, "final")
+
+    for scene in scenes:
+        number = scene["scene_number"]
+        write_text_file(images_dir, f"scene_{number:02d}.png.placeholder", "")
+        write_text_file(video_dir, f"scene_{number:02d}.mp4.placeholder", "")
+
+    write_text_file(audio_dir, "voiceover.mp3.placeholder", "")
+    write_text_file(audio_dir, "music.mp3.placeholder", "")
+    write_text_file(final_dir, "final_video.mp4.placeholder", "")
 
 
 def main() -> None:

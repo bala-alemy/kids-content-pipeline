@@ -488,6 +488,34 @@ def _scene_image_prompt_file(scene: dict) -> str:
     return f"prompts/scene_{scene['scene_number']:02d}_image_prompt.txt"
 
 
+# ---------------------------------------------------------------------------
+# Asset layout (MVP 1.5). These describe the *expected* real asset paths that
+# a later production step would fill in. The pipeline itself only creates
+# empty ".placeholder" markers next to these paths — it never generates real
+# images, audio, or video.
+# ---------------------------------------------------------------------------
+
+ASSET_DIRS = {
+    "images_dir": "assets/images",
+    "audio_dir": "assets/audio",
+    "video_dir": "assets/video",
+    "final_dir": "assets/final",
+}
+EXPECTED_VOICEOVER_FILE = "assets/audio/voiceover.mp3"
+EXPECTED_MUSIC_FILE = "assets/audio/music.mp3"
+EXPECTED_FINAL_VIDEO_FILE = "assets/final/final_video.mp4"
+
+
+def scene_image_file(scene_number: int) -> str:
+    """Expected real image path for a scene (e.g. assets/images/scene_01.png)."""
+    return f"assets/images/scene_{scene_number:02d}.png"
+
+
+def scene_video_file(scene_number: int) -> str:
+    """Expected real video path for a scene (e.g. assets/video/scene_01.mp4)."""
+    return f"assets/video/scene_{scene_number:02d}.mp4"
+
+
 def generate_production_plan(
     topic: str, topic_type: str, scenes: list[dict], metadata: dict
 ) -> dict:
@@ -511,6 +539,8 @@ def generate_production_plan(
             "image_prompt_file": _scene_image_prompt_file(scene),
             "animation_hint": scene["animation_hint"],
             "on_screen_text": scene["on_screen_text"],
+            "expected_image_file": scene_image_file(scene["scene_number"]),
+            "expected_video_file": scene_video_file(scene["scene_number"]),
         })
         start_second = cursor
         end_second = cursor + duration
@@ -529,6 +559,13 @@ def generate_production_plan(
             "song_file": "song.txt",
             "music_prompt_file": "music_prompt.txt",
             "video_style_prompt_file": "prompts/video_style_prompt.txt",
+            "images_dir": ASSET_DIRS["images_dir"],
+            "audio_dir": ASSET_DIRS["audio_dir"],
+            "video_dir": ASSET_DIRS["video_dir"],
+            "final_dir": ASSET_DIRS["final_dir"],
+            "expected_voiceover_file": EXPECTED_VOICEOVER_FILE,
+            "expected_music_file": EXPECTED_MUSIC_FILE,
+            "expected_final_video_file": EXPECTED_FINAL_VIDEO_FILE,
         },
         "scenes": plan_scenes,
         "timeline": timeline,

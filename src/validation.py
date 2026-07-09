@@ -18,6 +18,9 @@ Checks performed per topic:
  10. (MVP 1.4) production_plan.json exists, is valid JSON, contains the
      metadata/assets/scenes/timeline/quality_notes sections, its scene
      count matches scenes.json, and its timeline is sequential.
+ 11. (MVP 1.5) assets/ folder tree exists (images/audio/video/final) with a
+     .placeholder marker per scene image & video, voiceover/music audio
+     markers, a final video marker, and the new production_plan asset fields.
 """
 
 from __future__ import annotations
@@ -43,6 +46,22 @@ REQUIRED_PRODUCTION_PLAN_KEYS = (
     "scenes",
     "timeline",
     "quality_notes",
+)
+
+# (MVP 1.5) Asset-related keys expected in production_plan.json "assets".
+REQUIRED_PLAN_ASSET_KEYS = (
+    "images_dir",
+    "audio_dir",
+    "video_dir",
+    "final_dir",
+    "expected_voiceover_file",
+    "expected_music_file",
+    "expected_final_video_file",
+)
+# (MVP 1.5) Per-scene asset keys expected in each production_plan scene.
+REQUIRED_PLAN_SCENE_ASSET_KEYS = (
+    "expected_image_file",
+    "expected_video_file",
 )
 
 REQUIRED_SCENE_FIELDS = (
@@ -180,6 +199,15 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
                             f"production_plan.json is missing section: {key}"
                         )
 
+                # (MVP 1.5) new asset fields in the assets section.
+                plan_assets = plan.get("assets")
+                if isinstance(plan_assets, dict):
+                    for key in REQUIRED_PLAN_ASSET_KEYS:
+                        if key not in plan_assets:
+                            result.add_error(
+                                f"production_plan.json assets is missing key: {key}"
+                            )
+
                 plan_scenes = plan.get("scenes")
                 if isinstance(scenes, list) and isinstance(plan_scenes, list):
                     if len(plan_scenes) != len(scenes):
@@ -188,6 +216,18 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
                             f"({len(plan_scenes)}) does not match scenes.json "
                             f"({len(scenes)})"
                         )
+
+                # (MVP 1.5) per-scene asset fields.
+                if isinstance(plan_scenes, list):
+                    for index, scene in enumerate(plan_scenes, start=1):
+                        if not isinstance(scene, dict):
+                            continue
+                        for key in REQUIRED_PLAN_SCENE_ASSET_KEYS:
+                            if key not in scene:
+                                result.add_error(
+                                    f"production_plan.json scene #{index} is "
+                                    f"missing key: {key}"
+                                )
 
                 timeline = plan.get("timeline")
                 if isinstance(timeline, list):
@@ -217,6 +257,38 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
                             )
                         else:
                             expected_start = end
+
+    # 11. (MVP 1.5) assets/ folder tree + placeholder markers.
+    assets_dir = output_dir / "assets"
+    subdirs = {
+        "images": assets_dir / "images",
+        "audio": assets_dir / "audio",
+        "video": assets_dir / "video",
+        "final": assets_dir / "final",
+    }
+    for name, path in subdirs.items():
+        if not path.is_dir():
+            result.add_error(f"missing folder: assets/{name}/")
+
+    # Per-scene image + video placeholders.
+    if isinstance(scenes, list) and scenes:
+        for index, scene in enumerate(scenes, start=1):
+            number = scene.get("scene_number") if isinstance(scene, dict) else None
+            if not isinstance(number, int):
+                number = index
+            for kind, ext in (("images", "png"), ("video", "mp4")):
+                marker = f"assets/{kind}/scene_{number:02d}.{ext}.placeholder"
+                if not (output_dir / marker).is_file():
+                    result.add_error(f"missing file: {marker}")
+
+    # Audio + final video placeholders.
+    for marker in (
+        "assets/audio/voiceover.mp3.placeholder",
+        "assets/audio/music.mp3.placeholder",
+        "assets/final/final_video.mp4.placeholder",
+    ):
+        if not (output_dir / marker).is_file():
+            result.add_error(f"missing file: {marker}")
 
     return result
 

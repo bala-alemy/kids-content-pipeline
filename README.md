@@ -1,4 +1,4 @@
-# kids-content-pipeline (MVP 1.4)
+# kids-content-pipeline (MVP 1.5)
 
 MVP-пайплайн: тақырып бойынша қазақ тіліндегі оригинал балалар YouTube-роликінің
 құрылымын генерациялайды (3-5 жас аралығына арналған). Бұл нұсқада бейне
@@ -14,6 +14,11 @@ MVP 1.3-те әр тақырып үшін бөлек **`prompts/`** қалтас
 MVP 1.4-те бүкіл роликтің дайын жоспарын біріктіретін **`production_plan.json`**
 файлы қосылды: метадеректер, ассет-файлдарға сілтемелер, сценалар, уақыт желісі
 (timeline) және сапа/қауіпсіздік белгілері бір машинамен оқылатын JSON-да.
+
+MVP 1.5-те әр тақырыпта **`assets/`** қалта ағашы (`images/`, `audio/`,
+`video/`, `final/`) және бос **`.placeholder`** маркер-файлдары жасалады. Бұл —
+кейінгі өндіріс қадамы толтыратын орынды резервтейтін бос белгілер; нақты
+сурет/аудио/видео генерацияланбайды әрі жүктелмейді.
 
 ## Мүмкіндіктер
 
@@ -82,14 +87,48 @@ output/{topic_slug}/prompts/
   - `song_file`: `"song.txt"`
   - `music_prompt_file`: `"music_prompt.txt"`
   - `video_style_prompt_file`: `"prompts/video_style_prompt.txt"`
+  - (MVP 1.5) `images_dir`, `audio_dir`, `video_dir`, `final_dir` —
+    `assets/` ішіндегі қалталарға сілтемелер.
+  - (MVP 1.5) `expected_voiceover_file`: `"assets/audio/voiceover.mp3"`,
+    `expected_music_file`: `"assets/audio/music.mp3"`,
+    `expected_final_video_file`: `"assets/final/final_video.mp4"` — кейінгі
+    қадам шығаратын нақты ассет-файлдардың күтілетін жолдары.
 - **scenes** — әр сцена үшін: `scene_number`, `duration_seconds`, `title`,
   `voiceover_text`, `visual_description`, `image_prompt_file` (мыс.
-  `"prompts/scene_02_image_prompt.txt"`), `animation_hint`, `on_screen_text`.
+  `"prompts/scene_02_image_prompt.txt"`), `animation_hint`, `on_screen_text`,
+  сондай-ақ (MVP 1.5) `expected_image_file` (мыс.
+  `"assets/images/scene_02.png"`) және `expected_video_file` (мыс.
+  `"assets/video/scene_02.mp4"`).
 - **timeline** — әр сцена үшін: `scene_number`, `start_second`, `end_second`,
   `duration_seconds`. Сценалар бірінен соң бірі жалғасады (алдыңғының
   `end_second` = келесінің `start_second`).
 - **quality_notes** — `original_content`, `no_external_downloads`,
   `no_copyrighted_characters`, `child_safe` (барлығы `true`).
+
+### assets/ қалта ағашы (MVP 1.5)
+
+Әр тақырыпта кейінгі өндіріс қадамына арналған қалта құрылымы резервтеледі.
+Нақты медиа файлдары жасалмайды — тек бос `.placeholder` маркерлері қойылады:
+
+```
+output/{topic_slug}/assets/
+  images/
+    scene_01.png.placeholder   # әр сцена үшін
+    scene_02.png.placeholder
+    ...
+  audio/
+    voiceover.mp3.placeholder
+    music.mp3.placeholder
+  video/
+    scene_01.mp4.placeholder   # әр сцена үшін
+    scene_02.mp4.placeholder
+    ...
+  final/
+    final_video.mp4.placeholder
+```
+
+`.placeholder` файлдарының мазмұны бос — олар тек болашақ нақты файлдардың
+(`scene_01.png`, `voiceover.mp3`, `final_video.mp4` және т.б.) орнын белгілейді.
 
 ## topic_type — тақырып түрлері
 
@@ -136,6 +175,14 @@ output/{topic_slug}/prompts/
     `metadata`, `assets`, `scenes`, `timeline`, `quality_notes` бөлімдері бар;
     `scenes` саны `scenes.json`-мен сәйкес келеді; `timeline`-дегі
     `start_second`/`end_second` бірізді (сценалар үзіліссіз жалғасады).
+11. (MVP 1.5) `assets/images`, `assets/audio`, `assets/video`, `assets/final`
+    қалталары бар; әр сцена үшін `assets/images/scene_XX.png.placeholder`
+    және `assets/video/scene_XX.mp4.placeholder` бар;
+    `assets/audio/voiceover.mp3.placeholder`,
+    `assets/audio/music.mp3.placeholder`,
+    `assets/final/final_video.mp4.placeholder` бар; сондай-ақ
+    `production_plan.json` ішіндегі жаңа ассет өрістері (assets секциясында
+    және әр сценада) бар.
 
 Нәтижесінде консольге әр тақырып бойынша `[PASS]` / `[FAIL]` есебі және
 жиынтық қорытынды шығады. Кемінде бір тақырып тексеруден өтпесе, бағдарлама
@@ -196,11 +243,16 @@ kids-content-pipeline/
         ├── music_prompt.txt
         ├── metadata.json
         ├── production_plan.json  # MVP 1.4: біріктірілген өндіріс жоспары
-        └── prompts/         # MVP 1.3: бөлек промпт-файлдар
-            ├── scene_01_image_prompt.txt
-            ├── ...
-            ├── music_prompt.txt
-            └── video_style_prompt.txt
+        ├── prompts/         # MVP 1.3: бөлек промпт-файлдар
+        │   ├── scene_01_image_prompt.txt
+        │   ├── ...
+        │   ├── music_prompt.txt
+        │   └── video_style_prompt.txt
+        └── assets/          # MVP 1.5: .placeholder маркерлері бар қалта ағашы
+            ├── images/      # scene_XX.png.placeholder
+            ├── audio/       # voiceover.mp3.placeholder, music.mp3.placeholder
+            ├── video/       # scene_XX.mp4.placeholder
+            └── final/       # final_video.mp4.placeholder
 ```
 
 ## Іске қосу
