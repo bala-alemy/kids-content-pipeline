@@ -1,4 +1,4 @@
-# kids-content-pipeline (MVP 1.3)
+# kids-content-pipeline (MVP 1.4)
 
 MVP-пайплайн: тақырып бойынша қазақ тіліндегі оригинал балалар YouTube-роликінің
 құрылымын генерациялайды (3-5 жас аралығына арналған). Бұл нұсқада бейне
@@ -10,6 +10,10 @@ MVP 1.2-де генерациядан кейін автоматты **валид
 MVP 1.3-те әр тақырып үшін бөлек **`prompts/`** қалтасы генерацияланады: әр
 сценаның image_prompt-ы жеке txt-файлға, музыка промпты және жалпы видео стилі
 промпты сол қалтаға сақталады.
+
+MVP 1.4-те бүкіл роликтің дайын жоспарын біріктіретін **`production_plan.json`**
+файлы қосылды: метадеректер, ассет-файлдарға сілтемелер, сценалар, уақыт желісі
+(timeline) және сапа/қауіпсіздік белгілері бір машинамен оқылатын JSON-да.
 
 ## Мүмкіндіктер
 
@@ -25,6 +29,8 @@ MVP 1.3-те әр тақырып үшін бөлек **`prompts/`** қалтас
 6. **music_prompt.txt** — фондық музыкаға арналған промпт
 7. **metadata.json** — видео метадеректері (title, description, tags,
    language, target_age, duration_minutes)
+8. **production_plan.json** — бүкіл роликтің біріктірілген өндіріс жоспары
+   (metadata, assets, scenes, timeline, quality_notes)
 
 Барлық нәтижелер `output/{topic_slug}/` қалтасына сақталады.
 
@@ -64,6 +70,27 @@ output/{topic_slug}/prompts/
   сипаттайды: оригинал персонаж (Ақжелең), жұмсақ балалар стилі, жарқын
   түстер, 3-5 жасқа қауіпсіз, бөгде персонаж/бренд/copyrighted material жоқ.
 
+### production_plan.json құрылымы (MVP 1.4)
+
+Бүкіл роликтің дайын өндіріс жоспарын бір машинамен оқылатын JSON-ға
+біріктіреді. Бөлімдері:
+
+- **metadata** — `metadata.json`-мен бірдей өрістер: `title`, `description`,
+  `tags`, `language`, `target_age`, `duration_minutes`.
+- **assets** — негізгі ассет-файлдарға қатысты (relative) сілтемелер:
+  - `voiceover_file`: `"voiceover.txt"`
+  - `song_file`: `"song.txt"`
+  - `music_prompt_file`: `"music_prompt.txt"`
+  - `video_style_prompt_file`: `"prompts/video_style_prompt.txt"`
+- **scenes** — әр сцена үшін: `scene_number`, `duration_seconds`, `title`,
+  `voiceover_text`, `visual_description`, `image_prompt_file` (мыс.
+  `"prompts/scene_02_image_prompt.txt"`), `animation_hint`, `on_screen_text`.
+- **timeline** — әр сцена үшін: `scene_number`, `start_second`, `end_second`,
+  `duration_seconds`. Сценалар бірінен соң бірі жалғасады (алдыңғының
+  `end_second` = келесінің `start_second`).
+- **quality_notes** — `original_content`, `no_external_downloads`,
+  `no_copyrighted_characters`, `child_safe` (барлығы `true`).
+
 ## topic_type — тақырып түрлері
 
 `input/topics.json` файлындағы әр тақырыпта `topic_type` өрісі болады. Ол
@@ -80,9 +107,10 @@ output/{topic_slug}/prompts/
 
 ## Барлық нәтижелер
 
-Әр тақырып үшін `output/{topic_slug}/` қалтасында 7 файл пайда болады:
+Әр тақырып үшін `output/{topic_slug}/` қалтасында 8 файл пайда болады:
 `script.txt`, `song.txt`, `voiceover.txt`, `scenes.json`,
-`image_prompts.json`, `music_prompt.txt`, `metadata.json`.
+`image_prompts.json`, `music_prompt.txt`, `metadata.json`,
+`production_plan.json`, сондай-ақ `prompts/` қалтасы.
 
 ## Валидация (MVP 1.2)
 
@@ -104,6 +132,10 @@ output/{topic_slug}/prompts/
 9. (MVP 1.3) `prompts/` қалтасы бар; ондағы әр сцена үшін
    `scene_XX_image_prompt.txt` файлы бар; `prompts/music_prompt.txt` және
    `prompts/video_style_prompt.txt` файлдары бар.
+10. (MVP 1.4) `production_plan.json` бар әрі жарамды (valid) JSON; ішінде
+    `metadata`, `assets`, `scenes`, `timeline`, `quality_notes` бөлімдері бар;
+    `scenes` саны `scenes.json`-мен сәйкес келеді; `timeline`-дегі
+    `start_second`/`end_second` бірізді (сценалар үзіліссіз жалғасады).
 
 Нәтижесінде консольге әр тақырып бойынша `[PASS]` / `[FAIL]` есебі және
 жиынтық қорытынды шығады. Кемінде бір тақырып тексеруден өтпесе, бағдарлама
@@ -163,6 +195,7 @@ kids-content-pipeline/
         ├── image_prompts.json
         ├── music_prompt.txt
         ├── metadata.json
+        ├── production_plan.json  # MVP 1.4: біріктірілген өндіріс жоспары
         └── prompts/         # MVP 1.3: бөлек промпт-файлдар
             ├── scene_01_image_prompt.txt
             ├── ...

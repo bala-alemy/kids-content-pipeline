@@ -15,6 +15,9 @@ Checks performed per topic:
   8. metadata.json contains all required keys.
   9. (MVP 1.3) prompts/ folder exists with one image prompt per scene,
      plus music_prompt.txt and video_style_prompt.txt.
+ 10. (MVP 1.4) production_plan.json exists, is valid JSON, contains the
+     metadata/assets/scenes/timeline/quality_notes sections, its scene
+     count matches scenes.json, and its timeline is sequential.
 """
 
 from __future__ import annotations
@@ -31,6 +34,15 @@ REQUIRED_FILES = (
     "image_prompts.json",
     "music_prompt.txt",
     "metadata.json",
+    "production_plan.json",
+)
+
+REQUIRED_PRODUCTION_PLAN_KEYS = (
+    "metadata",
+    "assets",
+    "scenes",
+    "timeline",
+    "quality_notes",
 )
 
 REQUIRED_SCENE_FIELDS = (
@@ -150,6 +162,61 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
         for name in ("music_prompt.txt", "video_style_prompt.txt"):
             if not (prompts_dir / name).is_file():
                 result.add_error(f"missing file: prompts/{name}")
+
+    # 10. (MVP 1.4) production_plan.json structure + cross-checks.
+    plan_path = output_dir / "production_plan.json"
+    if plan_path.is_file():
+        try:
+            plan = _load_json(plan_path)
+        except json.JSONDecodeError as exc:
+            result.add_error(f"production_plan.json is not valid JSON: {exc}")
+        else:
+            if not isinstance(plan, dict):
+                result.add_error("production_plan.json must be a JSON object")
+            else:
+                for key in REQUIRED_PRODUCTION_PLAN_KEYS:
+                    if key not in plan:
+                        result.add_error(
+                            f"production_plan.json is missing section: {key}"
+                        )
+
+                plan_scenes = plan.get("scenes")
+                if isinstance(scenes, list) and isinstance(plan_scenes, list):
+                    if len(plan_scenes) != len(scenes):
+                        result.add_error(
+                            "production_plan.json scenes count "
+                            f"({len(plan_scenes)}) does not match scenes.json "
+                            f"({len(scenes)})"
+                        )
+
+                timeline = plan.get("timeline")
+                if isinstance(timeline, list):
+                    expected_start = 0
+                    for index, entry in enumerate(timeline, start=1):
+                        if not isinstance(entry, dict):
+                            result.add_error(f"timeline entry #{index} is not an object")
+                            continue
+                        start = entry.get("start_second")
+                        end = entry.get("end_second")
+                        duration = entry.get("duration_seconds")
+                        if not isinstance(start, (int, float)) or start != expected_start:
+                            result.add_error(
+                                f"timeline entry #{index} start_second must be "
+                                f"{expected_start} (got {start!r})"
+                            )
+                        elif not isinstance(end, (int, float)) or end <= start:
+                            result.add_error(
+                                f"timeline entry #{index} end_second must be "
+                                f"greater than start_second (got {end!r})"
+                            )
+                        elif isinstance(duration, (int, float)) and end - start != duration:
+                            result.add_error(
+                                f"timeline entry #{index} end_second - start_second "
+                                f"({end - start}) does not match duration_seconds "
+                                f"({duration})"
+                            )
+                        else:
+                            expected_start = end
 
     return result
 

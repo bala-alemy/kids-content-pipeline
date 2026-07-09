@@ -481,3 +481,61 @@ def generate_metadata(topic: str, topic_type: str, scenes: list[dict]) -> dict:
         "target_age": "3-5",
         "duration_minutes": duration_minutes,
     }
+
+
+def _scene_image_prompt_file(scene: dict) -> str:
+    """Relative path (from the topic dir) to a scene's per-scene image prompt."""
+    return f"prompts/scene_{scene['scene_number']:02d}_image_prompt.txt"
+
+
+def generate_production_plan(
+    topic: str, topic_type: str, scenes: list[dict], metadata: dict
+) -> dict:
+    """Assemble production_plan.json: a single machine-readable plan tying
+    together metadata, asset file references, per-scene details, a sequential
+    timeline, and quality/safety notes.
+
+    All references are relative paths inside the topic's output directory;
+    nothing here triggers network access or downloads."""
+    plan_scenes = []
+    timeline = []
+    cursor = 0
+    for scene in scenes:
+        duration = scene["duration_seconds"]
+        plan_scenes.append({
+            "scene_number": scene["scene_number"],
+            "duration_seconds": duration,
+            "title": scene["title"],
+            "voiceover_text": scene["voiceover_text"],
+            "visual_description": scene["visual_description"],
+            "image_prompt_file": _scene_image_prompt_file(scene),
+            "animation_hint": scene["animation_hint"],
+            "on_screen_text": scene["on_screen_text"],
+        })
+        start_second = cursor
+        end_second = cursor + duration
+        timeline.append({
+            "scene_number": scene["scene_number"],
+            "start_second": start_second,
+            "end_second": end_second,
+            "duration_seconds": duration,
+        })
+        cursor = end_second
+
+    return {
+        "metadata": metadata,
+        "assets": {
+            "voiceover_file": "voiceover.txt",
+            "song_file": "song.txt",
+            "music_prompt_file": "music_prompt.txt",
+            "video_style_prompt_file": "prompts/video_style_prompt.txt",
+        },
+        "scenes": plan_scenes,
+        "timeline": timeline,
+        "quality_notes": {
+            "original_content": True,
+            "no_external_downloads": True,
+            "no_copyrighted_characters": True,
+            "child_safe": True,
+        },
+    }

@@ -28,6 +28,7 @@ from generator import (
     generate_image_prompts,
     generate_metadata,
     generate_music_prompt,
+    generate_production_plan,
     generate_scenes,
     generate_script,
     generate_song,
@@ -80,6 +81,7 @@ def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     music_prompt = generate_music_prompt(topic)
     metadata = generate_metadata(topic, topic_type, scenes)
     video_style_prompt = generate_video_style_prompt(topic, topic_type)
+    production_plan = generate_production_plan(topic, topic_type, scenes, metadata)
 
     write_text_file(output_dir, "script.txt", script)
     write_text_file(output_dir, "song.txt", song)
@@ -88,6 +90,7 @@ def process_topic(topic: str, topic_type: str) -> tuple[str, Path]:
     write_json_file(output_dir, "image_prompts.json", image_prompts)
     write_text_file(output_dir, "music_prompt.txt", music_prompt)
     write_json_file(output_dir, "metadata.json", metadata)
+    write_json_file(output_dir, "production_plan.json", production_plan)
 
     # MVP 1.3: per-scene image prompts + shared prompts in a prompts/ folder.
     prompts_dir = get_subdir(output_dir, "prompts")
