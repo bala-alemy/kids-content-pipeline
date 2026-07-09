@@ -1,6 +1,14 @@
 # Generated output
 output/
 
+# Secrets — never commit API keys (MVP 2.1)
+.env
+.env.*
+
+# Real generated audio (keep .placeholder markers, ignore actual media)
+*.mp3
+*.wav
+
 # Python
 __pycache__/
 *.pyc

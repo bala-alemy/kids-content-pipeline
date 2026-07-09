@@ -2,5 +2,11 @@
   "voice_provider": "mock",
   "voice_language": "kk",
   "voice_name": "default_child_friendly",
-  "output_audio_format": "mp3"
+  "output_audio_format": "mp3",
+  "elevenlabs": {
+    "api_key_env": "ELEVENLABS_API_KEY",
+    "voice_id": "",
+    "model_id": "",
+    "output_format": "mp3_44100_128"
+  }
 }

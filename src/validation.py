@@ -25,6 +25,9 @@ Checks performed per topic:
      key section headings.
  13. (MVP 2.0) assets/audio/voiceover_request.json exists, is valid JSON, and
      contains the required voiceover-request fields.
+ 14. (MVP 2.1) provider-aware voiceover audio: for voice_provider "mock" the
+     voiceover.mp3.placeholder must exist; for "elevenlabs" a real
+     voiceover.mp3 must exist.
 """
 
 from __future__ import annotations
@@ -132,9 +135,15 @@ def _load_json(path: Path):
         return json.load(f)
 
 
-def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationResult:
-    """Validate a single topic's generated output directory."""
+def validate_topic(
+    topic: str, slug: str, output_dir: Path, settings: dict | None = None
+) -> TopicValidationResult:
+    """Validate a single topic's generated output directory.
+
+    ``settings`` selects provider-specific checks (e.g. the ElevenLabs provider
+    must produce a real voiceover.mp3; mock only needs the placeholder)."""
     result = TopicValidationResult(topic=topic, slug=slug)
+    provider = (settings or {}).get("voice_provider", "mock")
 
     # 1. All required files exist.
     missing = [name for name in REQUIRED_FILES if not (output_dir / name).is_file()]
@@ -306,14 +315,23 @@ def validate_topic(topic: str, slug: str, output_dir: Path) -> TopicValidationRe
                 if not (output_dir / marker).is_file():
                     result.add_error(f"missing file: {marker}")
 
-    # Audio + final video placeholders.
+    # Music + final video are always placeholders at this stage.
     for marker in (
-        "assets/audio/voiceover.mp3.placeholder",
         "assets/audio/music.mp3.placeholder",
         "assets/final/final_video.mp4.placeholder",
     ):
         if not (output_dir / marker).is_file():
             result.add_error(f"missing file: {marker}")
+
+    # (MVP 2.1) Voiceover audio is provider-aware:
+    #   - elevenlabs: a real assets/audio/voiceover.mp3 must have been produced.
+    #   - mock (default): only the .placeholder marker is expected.
+    if provider == "elevenlabs":
+        if not (output_dir / "assets" / "audio" / "voiceover.mp3").is_file():
+            result.add_error("missing file: assets/audio/voiceover.mp3")
+    else:
+        if not (output_dir / "assets" / "audio" / "voiceover.mp3.placeholder").is_file():
+            result.add_error("missing file: assets/audio/voiceover.mp3.placeholder")
 
     # 12. (MVP 1.6) production_checklist.md: non-empty + key sections present.
     checklist_path = output_dir / "production_checklist.md"

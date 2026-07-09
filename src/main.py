@@ -39,6 +39,7 @@ from generator import (
     slugify,
 )
 from validation import format_report, validate_topic
+from voice_generator import VoiceProviderError
 from voice_generator import generate_voiceover as prepare_voiceover_generation
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -169,10 +170,15 @@ def main() -> None:
 
     results = []
     for topic in topics:
-        slug, output_dir = process_topic(
-            topic["title"], topic["topic_type"], settings
-        )
-        results.append(validate_topic(topic["title"], slug, output_dir))
+        try:
+            slug, output_dir = process_topic(
+                topic["title"], topic["topic_type"], settings
+            )
+        except VoiceProviderError as exc:
+            # Clear, user-facing message instead of an opaque traceback.
+            print(f"\n[ERROR] Voice generation failed: {exc}")
+            sys.exit(1)
+        results.append(validate_topic(topic["title"], slug, output_dir, settings))
 
     print("\nDone. See the output/ folder for generated files.")
 
