@@ -1,16 +1,23 @@
-"""Entry point: reads topics (with topic_type) from input/topics.json and
-generates a full set of original text-based assets (script, song,
-voiceover, scenes, image prompts, music prompt, metadata) for each topic,
-saved under output/{topic_slug}/.
+"""Episode Factory entry point.
 
-No external APIs, no video downloads, no third-party characters or
-copyrighted material are used. All content is produced from local
-templates in generator.py.
+Usage:
+    python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode episode
+    python src/main.py --topic "..." --mode render-only
+    python src/main.py --topic "..." --mode cut-only
+
+The user supplies only a topic. The system produces a full 16:9 YouTube
+video first, then cuts vertical 9:16 Shorts and TikTok clips out of it, all
+sharing the same original mascot (Akzhelen) and visual style.
+
+No external content APIs, no video downloads, no copied songs / characters /
+voices. All text and plans come from local templates; images use the free
+Pollinations API (or placeholders); the song is produced manually in Suno
+from the generated prompt + lyrics and dropped into assets/audio/song.mp3.
 """
 
 from __future__ import annotations
 
-import json
+import argparse
 import sys
 from pathlib import Path
 
@@ -18,176 +25,43 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from file_writer import (
-    get_subdir,
-    get_topic_output_dir,
-    write_json_file,
-    write_text_file,
-)
-from generator import (
-    generate_image_prompts,
-    generate_metadata,
-    generate_music_prompt,
-    generate_production_checklist,
-    generate_production_plan,
-    generate_scenes,
-    generate_script,
-    generate_song,
-    generate_video_style_prompt,
-    generate_voiceover,
-    normalize_topic_type,
-    slugify,
-)
-from validation import format_report, validate_topic
-from voice_generator import VoiceProviderError
-from voice_generator import generate_voiceover as prepare_voiceover_generation
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parent.parent
-INPUT_PATH = ROOT / "input" / "topics.json"
-SETTINGS_PATH = ROOT / "config" / "settings.json"
-
-DEFAULT_SETTINGS = {
-    "voice_provider": "mock",
-    "voice_language": "kk",
-    "voice_name": "default_child_friendly",
-    "output_audio_format": "mp3",
-}
+from image_generator import ImageProviderError  # noqa: E402
+from pipeline import VALID_MODES, EpisodePipeline, PipelineError  # noqa: E402
+from song_generator import SongProviderError  # noqa: E402
+from validation import format_report  # noqa: E402
 
 
-def load_settings() -> dict:
-    """Load config/settings.json, falling back to safe mock defaults."""
-    if not SETTINGS_PATH.exists():
-        print(f"Settings file not found, using mock defaults: {SETTINGS_PATH}")
-        return dict(DEFAULT_SETTINGS)
-
-    with SETTINGS_PATH.open(encoding="utf-8") as f:
-        settings = json.load(f)
-
-    # Fill any missing keys with defaults so downstream code is safe.
-    merged = dict(DEFAULT_SETTINGS)
-    merged.update(settings)
-    return merged
-
-
-def load_topics() -> list[dict]:
-    if not INPUT_PATH.exists():
-        print(f"Input file not found: {INPUT_PATH}")
-        sys.exit(1)
-
-    with INPUT_PATH.open(encoding="utf-8") as f:
-        data = json.load(f)
-
-    raw_topics = data.get("topics", [])
-    if not raw_topics:
-        print("No topics found in input/topics.json")
-        sys.exit(1)
-
-    topics = []
-    for item in raw_topics:
-        if isinstance(item, str):
-            topics.append({"title": item, "topic_type": "general"})
-        else:
-            topics.append({
-                "title": item["title"],
-                "topic_type": item.get("topic_type", "general"),
-            })
-
-    return topics
-
-
-def process_topic(topic: str, topic_type: str, settings: dict) -> tuple[str, Path]:
-    topic_type = normalize_topic_type(topic_type)
-    slug = slugify(topic)
-    output_dir = get_topic_output_dir(slug)
-
-    script = generate_script(topic, topic_type)
-    song = generate_song(topic, topic_type)
-    scenes = generate_scenes(topic, topic_type)
-    voiceover = generate_voiceover(scenes)
-    image_prompts = generate_image_prompts(topic, scenes)
-    music_prompt = generate_music_prompt(topic)
-    metadata = generate_metadata(topic, topic_type, scenes)
-    video_style_prompt = generate_video_style_prompt(topic, topic_type)
-    production_plan = generate_production_plan(topic, topic_type, scenes, metadata)
-    production_checklist = generate_production_checklist(
-        topic, topic_type, scenes, metadata
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="episode-factory",
+        description="Kazakh toddler Episode Factory: full YouTube video + Shorts/TikTok cuts.",
     )
-
-    write_text_file(output_dir, "script.txt", script)
-    write_text_file(output_dir, "song.txt", song)
-    write_text_file(output_dir, "voiceover.txt", voiceover)
-    write_json_file(output_dir, "scenes.json", scenes)
-    write_json_file(output_dir, "image_prompts.json", image_prompts)
-    write_text_file(output_dir, "music_prompt.txt", music_prompt)
-    write_json_file(output_dir, "metadata.json", metadata)
-    write_json_file(output_dir, "production_plan.json", production_plan)
-    write_text_file(output_dir, "production_checklist.md", production_checklist)
-
-    # MVP 1.3: per-scene image prompts + shared prompts in a prompts/ folder.
-    prompts_dir = get_subdir(output_dir, "prompts")
-    for scene in scenes:
-        filename = f"scene_{scene['scene_number']:02d}_image_prompt.txt"
-        write_text_file(prompts_dir, filename, scene["image_prompt"] + "\n")
-    write_text_file(prompts_dir, "music_prompt.txt", music_prompt)
-    write_text_file(prompts_dir, "video_style_prompt.txt", video_style_prompt)
-
-    # MVP 1.5: assets/ folder tree with empty ".placeholder" markers. No real
-    # images/audio/video are ever produced — these just reserve the layout a
-    # later production step would fill in.
-    write_asset_placeholders(output_dir, scenes)
-
-    # MVP 2.0: prepare the voiceover TTS request (mock mode = local, no API).
-    prepare_voiceover_generation(output_dir, slug, settings, voiceover)
-
-    print(f"[OK] {topic!r} ({topic_type}) -> output/{slug}/")
-    return slug, output_dir
+    parser.add_argument("--topic", required=True, help="Episode topic (any language).")
+    parser.add_argument(
+        "--mode", default="episode", choices=VALID_MODES,
+        help="episode = full run; render-only = re-render + re-cut; cut-only = re-cut Shorts/TikTok.",
+    )
+    return parser.parse_args(argv)
 
 
-def write_asset_placeholders(output_dir: Path, scenes: list[dict]) -> None:
-    """Create the assets/ directory tree and empty placeholder markers."""
-    assets_dir = get_subdir(output_dir, "assets")
-    images_dir = get_subdir(assets_dir, "images")
-    audio_dir = get_subdir(assets_dir, "audio")
-    video_dir = get_subdir(assets_dir, "video")
-    final_dir = get_subdir(assets_dir, "final")
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
 
-    for scene in scenes:
-        number = scene["scene_number"]
-        write_text_file(images_dir, f"scene_{number:02d}.png.placeholder", "")
-        write_text_file(video_dir, f"scene_{number:02d}.mp4.placeholder", "")
+    try:
+        pipeline = EpisodePipeline()
+        result = pipeline.run(args.topic, args.mode)
+    except (PipelineError, SongProviderError, ImageProviderError) as exc:
+        print(f"\n[ERROR] {exc}")
+        return 1
+    except FileNotFoundError as exc:
+        print(f"\n[ERROR] {exc}")
+        return 1
 
-    write_text_file(audio_dir, "voiceover.mp3.placeholder", "")
-    write_text_file(audio_dir, "music.mp3.placeholder", "")
-    write_text_file(final_dir, "final_video.mp4.placeholder", "")
-
-
-def main() -> None:
-    topics = load_topics()
-    settings = load_settings()
-    print(f"Found {len(topics)} topic(s) in input/topics.json")
-    print(f"Voice provider: {settings['voice_provider']} "
-          f"(language: {settings['voice_language']})\n")
-
-    results = []
-    for topic in topics:
-        try:
-            slug, output_dir = process_topic(
-                topic["title"], topic["topic_type"], settings
-            )
-        except VoiceProviderError as exc:
-            # Clear, user-facing message instead of an opaque traceback.
-            print(f"\n[ERROR] Voice generation failed: {exc}")
-            sys.exit(1)
-        results.append(validate_topic(topic["title"], slug, output_dir, settings))
-
-    print("\nDone. See the output/ folder for generated files.")
-
-    print(format_report(results))
-
-    # Non-zero exit code if any topic failed validation, so CI/scripts notice.
-    if any(not result.ok for result in results):
-        sys.exit(1)
+    print(format_report(result))
+    return 0 if result.ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

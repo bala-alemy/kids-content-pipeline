@@ -1,0 +1,25 @@
+{
+  "main_character_name": "Akzhelen",
+  "species": "bunny",
+  "description": "Original cute bunny mascot for a toddler cartoon channel. White and soft pink fur, very large shiny brown eyes, long ears with pink inner ears, small pink nose, happy friendly expression, blue overalls with a yellow star, purple top with a pink bow, soft fluffy fur, round cheeks, gentle smile, child-safe design.",
+  "personality": "kind, cheerful, curious, gentle, helpful",
+  "must_keep_consistent": [
+    "same bunny identity",
+    "same face",
+    "same large shiny brown eyes",
+    "same white and soft pink fur",
+    "same long ears with pink inner ears",
+    "same blue overalls with yellow star",
+    "same purple top",
+    "same pink bow",
+    "same soft rounded proportions"
+  ],
+  "do_not_change": [
+    "do not replace with another animal",
+    "do not change outfit",
+    "do not change eye shape",
+    "do not change fur colors",
+    "do not add logos",
+    "do not add copyrighted characters"
+  ]
+}

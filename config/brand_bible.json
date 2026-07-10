@@ -1,0 +1,9 @@
+{
+  "project_name": "Bala Alemy",
+  "language": "kk",
+  "target_age": "3-5",
+  "main_character_name": "Akzhelen",
+  "content_type": "Kazakh toddler songs and stories",
+  "default_full_video_duration_seconds": 180,
+  "default_short_duration_seconds": 45
+}

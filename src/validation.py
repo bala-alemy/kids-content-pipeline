@@ -1,33 +1,20 @@
-"""Validation for generated topic output (MVP 1.2).
+"""Validation for a finished Episode Factory task directory.
 
-Given a topic's output directory, run a series of structural checks and
-return a per-topic result. There are no network calls and no third-party
-dependencies — this uses only the Python standard library.
+Given a task's output directory + the loaded bibles, run structural and
+safety checks and return a single result. Standard library only.
 
-Checks performed per topic:
-  1. All required files exist.
-  2. scenes.json is valid JSON.
-  3. metadata.json is valid JSON.
-  4. Every scene in scenes.json has all required fields.
-  5. Every scene's duration_seconds is greater than 0.
-  6. voiceover.txt is not empty.
-  7. script.txt is not empty.
-  8. metadata.json contains all required keys.
-  9. (MVP 1.3) prompts/ folder exists with one image prompt per scene,
-     plus music_prompt.txt and video_style_prompt.txt.
- 10. (MVP 1.4) production_plan.json exists, is valid JSON, contains the
-     metadata/assets/scenes/timeline/quality_notes sections, its scene
-     count matches scenes.json, and its timeline is sequential.
- 11. (MVP 1.5) assets/ folder tree exists (images/audio/video/final) with a
-     .placeholder marker per scene image & video, voiceover/music audio
-     markers, a final video marker, and the new production_plan asset fields.
- 12. (MVP 1.6) production_checklist.md exists, is not empty, and contains the
-     key section headings.
- 13. (MVP 2.0) assets/audio/voiceover_request.json exists, is valid JSON, and
-     contains the required voiceover-request fields.
- 14. (MVP 2.1) provider-aware voiceover audio: for voice_provider "mock" the
-     voiceover.mp3.placeholder must exist; for "elevenlabs" a real
-     voiceover.mp3 must exist.
+Checks:
+  1. task.json exists, valid JSON, has required fields.
+  2. The three bibles (brand/character/style) were loaded.
+  3. episode_plan.json exists + valid JSON + required keys.
+  4. song_lyrics.txt and suno_prompt.txt exist and are non-empty.
+  5. scenes.json exists, valid JSON, 12-20 scenes, each with required fields.
+  6. Every scene has a real image or a placeholder.
+  7. full/youtube_full_16x9.mp4 exists (moviepy render provider).
+  8. shorts/youtube_shorts_01.mp4 and tiktok/tiktok_01.mp4 exist.
+  9. No banned brand words appear in prompts/lyrics/scenes.
+ 10. Every scene image prompt names the main character (Akzhelen) and keeps
+     the main bunny description.
 """
 
 from __future__ import annotations
@@ -36,90 +23,33 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REQUIRED_FILES = (
-    "script.txt",
-    "song.txt",
-    "voiceover.txt",
-    "scenes.json",
-    "image_prompts.json",
-    "music_prompt.txt",
-    "metadata.json",
-    "production_plan.json",
-    "production_checklist.md",
+REQUIRED_TASK_KEYS = (
+    "task_id", "topic", "slug", "mode", "status", "current_stage",
+    "stages", "created_at", "updated_at", "output_dir",
 )
 
-# (MVP 1.6) Section headings that must appear in production_checklist.md.
-REQUIRED_CHECKLIST_SECTIONS = (
-    "Сценарий және озвучка",
-    "Музыка",
-    "Картинки",
-    "Финалды монтаж",
-    "Сапаны тексеру",
-    "YouTube metadata",
-)
-
-# (MVP 2.0) Required keys in assets/audio/voiceover_request.json.
-REQUIRED_VOICEOVER_REQUEST_KEYS = (
-    "topic_slug",
-    "language",
-    "voice_name",
-    "source_text_file",
-    "expected_output_file",
-    "text",
-)
-
-REQUIRED_PRODUCTION_PLAN_KEYS = (
-    "metadata",
-    "assets",
-    "scenes",
-    "timeline",
-    "quality_notes",
-)
-
-# (MVP 1.5) Asset-related keys expected in production_plan.json "assets".
-REQUIRED_PLAN_ASSET_KEYS = (
-    "images_dir",
-    "audio_dir",
-    "video_dir",
-    "final_dir",
-    "expected_voiceover_file",
-    "expected_music_file",
-    "expected_final_video_file",
-)
-# (MVP 1.5) Per-scene asset keys expected in each production_plan scene.
-REQUIRED_PLAN_SCENE_ASSET_KEYS = (
-    "expected_image_file",
-    "expected_video_file",
+REQUIRED_EPISODE_PLAN_KEYS = (
+    "topic", "language", "target_age", "full_video_duration_seconds",
+    "short_video_duration_seconds", "episode_type", "main_character",
+    "style", "song_structure", "scenes_count", "shorts_strategy",
 )
 
 REQUIRED_SCENE_FIELDS = (
-    "scene_number",
-    "title",
-    "duration_seconds",
-    "visual_description",
-    "voiceover_text",
-    "on_screen_text",
-    "image_prompt",
-    "animation_hint",
+    "scene_number", "title", "start_second", "end_second", "duration_seconds",
+    "lyric_line", "visual_description", "image_prompt", "animation_hint",
+    "on_screen_text", "short_candidate",
 )
 
-REQUIRED_METADATA_KEYS = (
-    "title",
-    "description",
-    "tags",
-    "language",
-    "target_age",
-    "duration_minutes",
-)
+MIN_SCENES = 12
+MAX_SCENES = 20
 
 
 @dataclass
-class TopicValidationResult:
-    """Validation outcome for a single topic."""
-
+class ValidationResult:
     topic: str
     slug: str
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -128,262 +58,211 @@ class TopicValidationResult:
     def add_error(self, message: str) -> None:
         self.errors.append(message)
 
+    def add_warning(self, message: str) -> None:
+        self.warnings.append(message)
+
 
 def _load_json(path: Path):
-    """Load JSON from path, raising ValueError with a friendly message."""
     with path.open(encoding="utf-8") as f:
         return json.load(f)
 
 
-def validate_topic(
-    topic: str, slug: str, output_dir: Path, settings: dict | None = None
-) -> TopicValidationResult:
-    """Validate a single topic's generated output directory.
+def validate_output(
+    topic: str,
+    slug: str,
+    output_dir: Path,
+    settings: dict,
+    bibles: dict,
+) -> ValidationResult:
+    result = ValidationResult(topic=topic, slug=slug)
+    banned = [w.lower() for w in (bibles.get("style") or {}).get("banned_words", [])]
+    mascot = (bibles.get("character") or {}).get("main_character_name", "Akzhelen")
 
-    ``settings`` selects provider-specific checks (e.g. the ElevenLabs provider
-    must produce a real voiceover.mp3; mock only needs the placeholder)."""
-    result = TopicValidationResult(topic=topic, slug=slug)
-    provider = (settings or {}).get("voice_provider", "mock")
+    # 1. task.json
+    task_path = output_dir / "task.json"
+    if not task_path.is_file():
+        result.add_error("missing file: task.json")
+    else:
+        try:
+            task = _load_json(task_path)
+        except json.JSONDecodeError as exc:
+            result.add_error(f"task.json is not valid JSON: {exc}")
+        else:
+            for key in REQUIRED_TASK_KEYS:
+                if key not in task:
+                    result.add_error(f"task.json is missing key: {key}")
 
-    # 1. All required files exist.
-    missing = [name for name in REQUIRED_FILES if not (output_dir / name).is_file()]
-    for name in missing:
-        result.add_error(f"missing file: {name}")
+    # 2. bibles loaded
+    for name in ("brand", "character", "style"):
+        if not bibles.get(name):
+            result.add_error(f"{name}_bible not loaded")
 
-    # 6 & 7. Non-empty text files.
-    for name in ("script.txt", "voiceover.txt"):
+    # 3. episode_plan.json
+    plan_path = output_dir / "episode_plan.json"
+    if not plan_path.is_file():
+        result.add_error("missing file: episode_plan.json")
+    else:
+        try:
+            episode_plan = _load_json(plan_path)
+        except json.JSONDecodeError as exc:
+            result.add_error(f"episode_plan.json is not valid JSON: {exc}")
+        else:
+            for key in REQUIRED_EPISODE_PLAN_KEYS:
+                if key not in episode_plan:
+                    result.add_error(f"episode_plan.json is missing key: {key}")
+
+    # 4. lyrics + suno prompt
+    for name in ("song_lyrics.txt", "suno_prompt.txt"):
         path = output_dir / name
-        if path.is_file() and not path.read_text(encoding="utf-8").strip():
+        if not path.is_file():
+            result.add_error(f"missing file: {name}")
+        elif not path.read_text(encoding="utf-8").strip():
             result.add_error(f"{name} is empty")
 
-    # 2 & 4 & 5. scenes.json valid JSON + per-scene field/duration checks.
-    scenes: list | None = None
+    # 5. scenes.json
+    scenes = None
     scenes_path = output_dir / "scenes.json"
-    if scenes_path.is_file():
+    if not scenes_path.is_file():
+        result.add_error("missing file: scenes.json")
+    else:
         try:
             scenes = _load_json(scenes_path)
         except json.JSONDecodeError as exc:
             result.add_error(f"scenes.json is not valid JSON: {exc}")
         else:
             if not isinstance(scenes, list) or not scenes:
-                result.add_error("scenes.json must be a non-empty list of scenes")
+                result.add_error("scenes.json must be a non-empty list")
+                scenes = None
             else:
+                if not (MIN_SCENES <= len(scenes) <= MAX_SCENES):
+                    result.add_error(
+                        f"scenes.json must have {MIN_SCENES}-{MAX_SCENES} scenes "
+                        f"(got {len(scenes)})"
+                    )
                 for index, scene in enumerate(scenes, start=1):
                     if not isinstance(scene, dict):
                         result.add_error(f"scene #{index} is not an object")
                         continue
                     for f_name in REQUIRED_SCENE_FIELDS:
                         if f_name not in scene:
-                            result.add_error(
-                                f"scene #{index} is missing field: {f_name}"
-                            )
-                    duration = scene.get("duration_seconds")
-                    if not isinstance(duration, (int, float)) or duration <= 0:
-                        result.add_error(
-                            f"scene #{index} duration_seconds must be > 0 "
-                            f"(got {duration!r})"
-                        )
+                            result.add_error(f"scene #{index} is missing field: {f_name}")
 
-    # 3 & 8. metadata.json valid JSON + required keys.
-    metadata_path = output_dir / "metadata.json"
-    if metadata_path.is_file():
-        try:
-            metadata = _load_json(metadata_path)
-        except json.JSONDecodeError as exc:
-            result.add_error(f"metadata.json is not valid JSON: {exc}")
-        else:
-            if not isinstance(metadata, dict):
-                result.add_error("metadata.json must be a JSON object")
-            else:
-                for key in REQUIRED_METADATA_KEYS:
-                    if key not in metadata:
-                        result.add_error(f"metadata.json is missing key: {key}")
-
-    # 9. (MVP 1.3) prompts/ folder: per-scene image prompts + shared prompts.
-    prompts_dir = output_dir / "prompts"
-    if not prompts_dir.is_dir():
-        result.add_error("missing folder: prompts/")
-    else:
-        if isinstance(scenes, list) and scenes:
-            for index, scene in enumerate(scenes, start=1):
-                number = scene.get("scene_number") if isinstance(scene, dict) else None
-                if not isinstance(number, int):
-                    number = index
-                name = f"prompts/scene_{number:02d}_image_prompt.txt"
-                if not (output_dir / name).is_file():
-                    result.add_error(f"missing file: {name}")
-        for name in ("music_prompt.txt", "video_style_prompt.txt"):
-            if not (prompts_dir / name).is_file():
-                result.add_error(f"missing file: prompts/{name}")
-
-    # 10. (MVP 1.4) production_plan.json structure + cross-checks.
-    plan_path = output_dir / "production_plan.json"
-    if plan_path.is_file():
-        try:
-            plan = _load_json(plan_path)
-        except json.JSONDecodeError as exc:
-            result.add_error(f"production_plan.json is not valid JSON: {exc}")
-        else:
-            if not isinstance(plan, dict):
-                result.add_error("production_plan.json must be a JSON object")
-            else:
-                for key in REQUIRED_PRODUCTION_PLAN_KEYS:
-                    if key not in plan:
-                        result.add_error(
-                            f"production_plan.json is missing section: {key}"
-                        )
-
-                # (MVP 1.5) new asset fields in the assets section.
-                plan_assets = plan.get("assets")
-                if isinstance(plan_assets, dict):
-                    for key in REQUIRED_PLAN_ASSET_KEYS:
-                        if key not in plan_assets:
-                            result.add_error(
-                                f"production_plan.json assets is missing key: {key}"
-                            )
-
-                plan_scenes = plan.get("scenes")
-                if isinstance(scenes, list) and isinstance(plan_scenes, list):
-                    if len(plan_scenes) != len(scenes):
-                        result.add_error(
-                            "production_plan.json scenes count "
-                            f"({len(plan_scenes)}) does not match scenes.json "
-                            f"({len(scenes)})"
-                        )
-
-                # (MVP 1.5) per-scene asset fields.
-                if isinstance(plan_scenes, list):
-                    for index, scene in enumerate(plan_scenes, start=1):
-                        if not isinstance(scene, dict):
-                            continue
-                        for key in REQUIRED_PLAN_SCENE_ASSET_KEYS:
-                            if key not in scene:
-                                result.add_error(
-                                    f"production_plan.json scene #{index} is "
-                                    f"missing key: {key}"
-                                )
-
-                timeline = plan.get("timeline")
-                if isinstance(timeline, list):
-                    expected_start = 0
-                    for index, entry in enumerate(timeline, start=1):
-                        if not isinstance(entry, dict):
-                            result.add_error(f"timeline entry #{index} is not an object")
-                            continue
-                        start = entry.get("start_second")
-                        end = entry.get("end_second")
-                        duration = entry.get("duration_seconds")
-                        if not isinstance(start, (int, float)) or start != expected_start:
-                            result.add_error(
-                                f"timeline entry #{index} start_second must be "
-                                f"{expected_start} (got {start!r})"
-                            )
-                        elif not isinstance(end, (int, float)) or end <= start:
-                            result.add_error(
-                                f"timeline entry #{index} end_second must be "
-                                f"greater than start_second (got {end!r})"
-                            )
-                        elif isinstance(duration, (int, float)) and end - start != duration:
-                            result.add_error(
-                                f"timeline entry #{index} end_second - start_second "
-                                f"({end - start}) does not match duration_seconds "
-                                f"({duration})"
-                            )
-                        else:
-                            expected_start = end
-
-    # 11. (MVP 1.5) assets/ folder tree + placeholder markers.
-    assets_dir = output_dir / "assets"
-    subdirs = {
-        "images": assets_dir / "images",
-        "audio": assets_dir / "audio",
-        "video": assets_dir / "video",
-        "final": assets_dir / "final",
-    }
-    for name, path in subdirs.items():
-        if not path.is_dir():
-            result.add_error(f"missing folder: assets/{name}/")
-
-    # Per-scene image + video placeholders.
-    if isinstance(scenes, list) and scenes:
+    # 6. per-scene image. When require_real_images is on (and the provider is
+    #    not the placeholder-only "mock"), every scene must have a real
+    #    scene_XX.png and placeholders are a hard failure. Otherwise a real
+    #    image OR a placeholder is acceptable.
+    require_real = bool(settings.get("require_real_images", False)) and \
+        settings.get("image_provider", "mock") != "mock"
+    images_dir = output_dir / "assets" / "images"
+    if isinstance(scenes, list):
         for index, scene in enumerate(scenes, start=1):
             number = scene.get("scene_number") if isinstance(scene, dict) else None
             if not isinstance(number, int):
                 number = index
-            for kind, ext in (("images", "png"), ("video", "mp4")):
-                marker = f"assets/{kind}/scene_{number:02d}.{ext}.placeholder"
-                if not (output_dir / marker).is_file():
-                    result.add_error(f"missing file: {marker}")
-
-    # Music + final video are always placeholders at this stage.
-    for marker in (
-        "assets/audio/music.mp3.placeholder",
-        "assets/final/final_video.mp4.placeholder",
-    ):
-        if not (output_dir / marker).is_file():
-            result.add_error(f"missing file: {marker}")
-
-    # (MVP 2.1) Voiceover audio is provider-aware:
-    #   - elevenlabs: a real assets/audio/voiceover.mp3 must have been produced.
-    #   - mock (default): only the .placeholder marker is expected.
-    if provider == "elevenlabs":
-        if not (output_dir / "assets" / "audio" / "voiceover.mp3").is_file():
-            result.add_error("missing file: assets/audio/voiceover.mp3")
-    else:
-        if not (output_dir / "assets" / "audio" / "voiceover.mp3.placeholder").is_file():
-            result.add_error("missing file: assets/audio/voiceover.mp3.placeholder")
-
-    # 12. (MVP 1.6) production_checklist.md: non-empty + key sections present.
-    checklist_path = output_dir / "production_checklist.md"
-    if checklist_path.is_file():
-        checklist_text = checklist_path.read_text(encoding="utf-8")
-        if not checklist_text.strip():
-            result.add_error("production_checklist.md is empty")
-        else:
-            for section in REQUIRED_CHECKLIST_SECTIONS:
-                if section not in checklist_text:
+            real = images_dir / f"scene_{number:02d}.png"
+            placeholder = images_dir / f"scene_{number:02d}.png.placeholder"
+            real_ok = real.is_file() and real.stat().st_size > 0
+            if require_real:
+                if not real_ok:
                     result.add_error(
-                        f"production_checklist.md is missing section: {section}"
+                        f"require_real_images is true but scene {number:02d} has no "
+                        f"real image (assets/images/scene_{number:02d}.png)"
                     )
+                if placeholder.is_file():
+                    result.add_error(
+                        f"require_real_images is true but scene {number:02d} is a "
+                        f"placeholder (assets/images/scene_{number:02d}.png.placeholder)"
+                    )
+            elif not (real_ok or placeholder.is_file()):
+                result.add_error(
+                    f"missing image and placeholder for scene {number:02d}"
+                )
 
-    # 13. (MVP 2.0) voiceover_request.json: exists, valid JSON, required fields.
-    request_rel = "assets/audio/voiceover_request.json"
-    request_path = output_dir / "assets" / "audio" / "voiceover_request.json"
-    if not request_path.is_file():
-        result.add_error(f"missing file: {request_rel}")
-    else:
-        try:
-            request = _load_json(request_path)
-        except json.JSONDecodeError as exc:
-            result.add_error(f"{request_rel} is not valid JSON: {exc}")
-        else:
-            if not isinstance(request, dict):
-                result.add_error(f"{request_rel} must be a JSON object")
-            else:
-                for key in REQUIRED_VOICEOVER_REQUEST_KEYS:
-                    if key not in request:
-                        result.add_error(f"{request_rel} is missing key: {key}")
+    # 7 & 8. rendered outputs
+    render_provider = settings.get("render_provider", "moviepy")
+    if render_provider == "moviepy":
+        required_videos = (
+            "full/youtube_full_16x9.mp4",
+            "shorts/youtube_shorts_01.mp4",
+            "tiktok/tiktok_01.mp4",
+        )
+        for rel in required_videos:
+            path = output_dir / rel
+            if not (path.is_file() and path.stat().st_size > 0):
+                result.add_error(f"missing file: {rel}")
+
+    # 9 & 10. banned words + character consistency in prompts.
+    _check_prompts(output_dir, scenes, banned, mascot, result)
 
     return result
 
 
-def format_report(results: list[TopicValidationResult]) -> str:
-    """Build a human-readable console report from validation results."""
+def _check_prompts(output_dir: Path, scenes, banned: list[str], mascot: str,
+                   result: ValidationResult) -> None:
+    """Scan lyrics + scene image prompts + image request JSONs for banned
+    brand words, and verify every image prompt keeps Akzhelen's identity."""
+    texts_to_scan: list[tuple[str, str]] = []
+
+    for name in ("song_lyrics.txt", "suno_prompt.txt"):
+        path = output_dir / name
+        if path.is_file():
+            texts_to_scan.append((name, path.read_text(encoding="utf-8")))
+
+    if isinstance(scenes, list):
+        for scene in scenes:
+            if isinstance(scene, dict):
+                texts_to_scan.append(
+                    (f"scene {scene.get('scene_number')} image_prompt",
+                     str(scene.get("image_prompt", "")))
+                )
+
+    # Full image request prompts (the exact text sent to the provider).
+    requests_dir = output_dir / "requests"
+    image_requests: list[tuple[str, str]] = []
+    if requests_dir.is_dir():
+        for req_path in sorted(requests_dir.glob("scene_*_image_request.json")):
+            try:
+                data = _load_json(req_path)
+            except Exception:
+                continue
+            prompt = str(data.get("prompt", ""))
+            image_requests.append((req_path.name, prompt))
+            texts_to_scan.append((req_path.name, prompt))
+
+    # 9. banned brand words.
+    for label, text in texts_to_scan:
+        lowered = text.lower()
+        for word in banned:
+            if word and word in lowered:
+                result.add_error(f"banned brand word '{word}' found in {label}")
+
+    # 10. each provider image prompt must name the mascot + keep bunny identity.
+    check_targets = image_requests or [
+        (f"scene {s.get('scene_number')} image_prompt", str(s.get("image_prompt", "")))
+        for s in (scenes or []) if isinstance(s, dict)
+    ]
+    for label, prompt in check_targets:
+        lowered = prompt.lower()
+        if mascot.lower() not in lowered:
+            result.add_error(f"image prompt {label} does not name {mascot}")
+        if "bunny" not in lowered:
+            result.add_error(
+                f"image prompt {label} is missing the main bunny description"
+            )
+
+
+def format_report(result: ValidationResult) -> str:
     lines = ["", "=" * 60, "VALIDATION REPORT", "=" * 60]
-
-    passed = 0
-    for result in results:
-        if result.ok:
-            passed += 1
-            lines.append(f"[PASS] {result.topic} (output/{result.slug}/)")
-        else:
-            lines.append(f"[FAIL] {result.topic} (output/{result.slug}/)")
-            for error in result.errors:
-                lines.append(f"       - {error}")
-
+    if result.ok:
+        lines.append(f"[PASS] {result.topic} (output/{result.slug}/)")
+    else:
+        lines.append(f"[FAIL] {result.topic} (output/{result.slug}/)")
+        for error in result.errors:
+            lines.append(f"       - {error}")
+    for warning in result.warnings:
+        lines.append(f"       ! {warning}")
     lines.append("-" * 60)
-    total = len(results)
-    failed = total - passed
-    lines.append(f"Summary: {passed}/{total} passed, {failed} failed")
+    status = "PASSED" if result.ok else "FAILED"
+    lines.append(f"Summary: {status} ({len(result.errors)} error(s))")
     lines.append("=" * 60)
     return "\n".join(lines)

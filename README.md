@@ -1,457 +1,182 @@
-# kids-content-pipeline (MVP 2.1)
+# Episode Factory — Bala Alemy
 
-MVP-пайплайн: тақырып бойынша қазақ тіліндегі оригинал балалар YouTube-роликінің
-құрылымын генерациялайды (3-5 жас аралығына арналған). Бұл нұсқада бейне
-генерацияланбайды — тек мәтіндік/JSON файлдар шығады.
+Қазақ тіліндегі балаларға арналған (3-5 жас) YouTube-арнаға арналған **Episode
+Factory**. Пайдаланушы тек **тақырып** енгізеді — жүйе алдымен **толық 16:9
+YouTube-видео** жинайды, содан кейін сол толық видеодан **тік 9:16 YouTube
+Shorts** және **TikTok** роликтерін автоматты **нарезка** жасайды.
 
-MVP 1.2-де генерациядан кейін автоматты **валидация** қосылды: әр тақырыптың
-шыққан файлдары тексеріліп, консольге түсінікті есеп шығарылады.
+> The user gives one topic. The system builds the **full YouTube video first**,
+> then cuts Shorts and TikTok clips **out of that full video** — never
+> regenerating vertical clips from scratch. Every output shares the same
+> original mascot and the same visual style.
 
-MVP 1.3-те әр тақырып үшін бөлек **`prompts/`** қалтасы генерацияланады: әр
-сценаның image_prompt-ы жеке txt-файлға, музыка промпты және жалпы видео стилі
-промпты сол қалтаға сақталады.
+## Негізгі идея (Episode Factory)
 
-MVP 1.4-те бүкіл роликтің дайын жоспарын біріктіретін **`production_plan.json`**
-файлы қосылды: метадеректер, ассет-файлдарға сілтемелер, сценалар, уақыт желісі
-(timeline) және сапа/қауіпсіздік белгілері бір машинамен оқылатын JSON-да.
+1. **Толық видео бірінші.** `full/youtube_full_16x9.mp4` сахна суреттерінен
+   (Ken Burns: баяу zoom + pan + fade) және `song.mp3`-тен жиналады.
+2. **Shorts/TikTok — толық видеодан.** `shorts/` және `tiktok/` роликтері
+   `full/youtube_full_16x9.mp4`-ты қиып, 16:9 → 9:16 форматына қайта жасау
+   арқылы алынады. Бөлек генерация жоқ.
+3. **Бір кейіпкер, бір стиль.** Барлық сахнада бір ғана оригинал зайчик —
+   **Akzhelen**, бірдей визуалды стильде.
 
-MVP 1.5-те әр тақырыпта **`assets/`** қалта ағашы (`images/`, `audio/`,
-`video/`, `final/`) және бос **`.placeholder`** маркер-файлдары жасалады. Бұл —
-кейінгі өндіріс қадамы толтыратын орынды резервтейтін бос белгілер; нақты
-сурет/аудио/видео генерацияланбайды әрі жүктелмейді.
+## Кейіпкер мен стиль тұрақтылығы (bibles)
 
-MVP 1.6-да әр тақырыпта **`production_checklist.md`** жасалады — алдын ала
-генерацияланған файлдар негізінде ролікті қолмен құрастыруға арналған қадамдық,
-түсінікті нұсқаулық (озвучка → музыка → суреттер → видео → монтаж → сапаны
-тексеру → YouTube metadata).
+Үш «bible» файлы `config/` ішінде барлық генерацияны басқарады:
 
-**MVP 2.0-де автоматты озвучкаға (TTS) дайындық қосылды.** Әр тақырып үшін
-`voiceover.txt` негізінде `assets/audio/voiceover_request.json` дайындалады.
+- **`config/character_bible.json`** — басты кейіпкер **Akzhelen**: түр-түсі,
+  көзі, киімі, `must_keep_consistent`, `do_not_change`. Әр сурет промптына бұл
+  сипаттама мен «дәл сол Akzhelen-ді сақта» деген нақты нұсқау қосылады, сондай
+  барлық сахнада бірдей зайчик шығады (image_generator.build_scene_image_prompt).
+- **`config/style_bible.json`** — жалпы визуалды стиль (`global_prompt`),
+  түстер, көңіл-күй, камера, және **`banned_words`** (Disney, Pixar, Frozen,
+  Mickey, Marvel, DreamWorks). Валидация бұл сөздердің промпттарда жоқ екенін
+  тексереді.
+- **`config/brand_bible.json`** — арна деңгейіндегі параметрлер: тіл, жас тобы,
+  толық/қысқа видео ұзақтығы, басты кейіпкер аты.
 
-**MVP 2.1-де нақты озвучка провайдері (ElevenLabs) қосылды — бірақ mock әдепкі
-әрі қауіпсіз күйінде қалады.** Провайдер `config/settings.json` ішіндегі
-`voice_provider` арқылы таңдалады:
-
-- **`mock`** (әдепкі, қауіпсіз, толығымен локалды) — ешбір API шақырылмайды.
-  Тек `voiceover_request.json` жазылады және `voiceover.mp3.placeholder`
-  маркері қойылады. Нақты аудио жасалмайды.
-- **`elevenlabs`** — ElevenLabs TTS API-ы арқылы `voiceover.txt` мәтінін
-  дауысқа айналдырып, нәтижені `assets/audio/voiceover.mp3` етіп сақтайды
-  (толық құрылымы төменде «Озвучка» бөлімінде).
-
-Толық егжей-тегжейі [Озвучка (MVP 2.1)](#озвучка-mvp-21) бөлімінде.
-
-## Мүмкіндіктер
-
-Әр тақырып үшін мыналар генерацияланады:
-
-1. **script.txt** — сценарий (қазақ тілінде)
-2. **song.txt** — ән/қайырма
-3. **voiceover.txt** — тек дауыстап оқуға арналған таза мәтін (сахна
-   сипаттамаларынсыз, қазақ тілінде, 3-5 жастағы балаларға арналған қарапайым
-   сөйлемдермен)
-4. **scenes.json** — толық құрылымдық сценалар тізімі
-5. **image_prompts.json** — әр сценаға арналған картина промпттары
-6. **music_prompt.txt** — фондық музыкаға арналған промпт
-7. **metadata.json** — видео метадеректері (title, description, tags,
-   language, target_age, duration_minutes)
-8. **production_plan.json** — бүкіл роликтің біріктірілген өндіріс жоспары
-   (metadata, assets, scenes, timeline, quality_notes)
-9. **production_checklist.md** — ролікті қолмен құрастыруға арналған қадамдық
-   нұсқаулық (Markdown)
-
-Барлық нәтижелер `output/{topic_slug}/` қалтасына сақталады.
-
-### scenes.json құрылымы
-
-Әр сценада мына өрістер болады:
-
-- `scene_number` — сцена нөмірі
-- `title` — сцена атауы
-- `duration_seconds` — ұзақтығы (секунд)
-- `visual_description` — экранда не болатынының сипаттамасы
-- `voiceover_text` — сол сценадағы дауыстап оқылатын мәтін
-- `on_screen_text` — экранда көрсетілетін қысқа жазу
-- `image_prompt` — AI-суретке арналған промпт
-- `animation_hint` — анимация/қимыл бойынша нұсқау
-
-### prompts/ қалтасы (MVP 1.3)
-
-Әр тақырыпта, негізгі файлдардан бөлек, `prompts/` қалтасы жасалады. Ол
-промпттарды генерациялау құралдарына (сурет/музыка/видео) ыңғайлы, дайын күйде
-бөлек ұсынады:
+Итоговый сурет промпты әрқашан:
 
 ```
-output/{topic_slug}/prompts/
-  scene_01_image_prompt.txt   # 1-сцена image_prompt
-  scene_02_image_prompt.txt   # 2-сцена image_prompt
-  ...
-  scene_08_image_prompt.txt   # соңғы сцена image_prompt
-  music_prompt.txt            # music_prompt.txt көшірмесі
-  video_style_prompt.txt      # роликтің жалпы визуалды стилі
-```
-
-- **scene_XX_image_prompt.txt** — `scenes.json` ішіндегі әр сценаның
-  `image_prompt` мәтіні жеке файлда (XX — сцена нөмірі, екі таңбамен).
-- **music_prompt.txt** — түбірдегі `music_prompt.txt` файлының көшірмесі.
-- **video_style_prompt.txt** — бүкіл роликтің ортақ визуалды стилін
-  сипаттайды: оригинал персонаж (Ақжелең), жұмсақ балалар стилі, жарқын
-  түстер, 3-5 жасқа қауіпсіз, бөгде персонаж/бренд/copyrighted material жоқ.
-
-### production_plan.json құрылымы (MVP 1.4)
-
-Бүкіл роликтің дайын өндіріс жоспарын бір машинамен оқылатын JSON-ға
-біріктіреді. Бөлімдері:
-
-- **metadata** — `metadata.json`-мен бірдей өрістер: `title`, `description`,
-  `tags`, `language`, `target_age`, `duration_minutes`.
-- **assets** — негізгі ассет-файлдарға қатысты (relative) сілтемелер:
-  - `voiceover_file`: `"voiceover.txt"`
-  - `song_file`: `"song.txt"`
-  - `music_prompt_file`: `"music_prompt.txt"`
-  - `video_style_prompt_file`: `"prompts/video_style_prompt.txt"`
-  - (MVP 1.5) `images_dir`, `audio_dir`, `video_dir`, `final_dir` —
-    `assets/` ішіндегі қалталарға сілтемелер.
-  - (MVP 1.5) `expected_voiceover_file`: `"assets/audio/voiceover.mp3"`,
-    `expected_music_file`: `"assets/audio/music.mp3"`,
-    `expected_final_video_file`: `"assets/final/final_video.mp4"` — кейінгі
-    қадам шығаратын нақты ассет-файлдардың күтілетін жолдары.
-  - (MVP 2.0) `voiceover_request_file`: `"assets/audio/voiceover_request.json"`
-    — озвучкаға дайындалған TTS сұранысына сілтеме.
-- **scenes** — әр сцена үшін: `scene_number`, `duration_seconds`, `title`,
-  `voiceover_text`, `visual_description`, `image_prompt_file` (мыс.
-  `"prompts/scene_02_image_prompt.txt"`), `animation_hint`, `on_screen_text`,
-  сондай-ақ (MVP 1.5) `expected_image_file` (мыс.
-  `"assets/images/scene_02.png"`) және `expected_video_file` (мыс.
-  `"assets/video/scene_02.mp4"`).
-- **timeline** — әр сцена үшін: `scene_number`, `start_second`, `end_second`,
-  `duration_seconds`. Сценалар бірінен соң бірі жалғасады (алдыңғының
-  `end_second` = келесінің `start_second`).
-- **quality_notes** — `original_content`, `no_external_downloads`,
-  `no_copyrighted_characters`, `child_safe` (барлығы `true`).
-
-### assets/ қалта ағашы (MVP 1.5)
-
-Әр тақырыпта кейінгі өндіріс қадамына арналған қалта құрылымы резервтеледі.
-Нақты медиа файлдары жасалмайды — тек бос `.placeholder` маркерлері қойылады:
-
-```
-output/{topic_slug}/assets/
-  images/
-    scene_01.png.placeholder   # әр сцена үшін
-    scene_02.png.placeholder
-    ...
-  audio/
-    voiceover.mp3.placeholder
-    music.mp3.placeholder
-  video/
-    scene_01.mp4.placeholder   # әр сцена үшін
-    scene_02.mp4.placeholder
-    ...
-  final/
-    final_video.mp4.placeholder
-```
-
-`.placeholder` файлдарының мазмұны бос — олар тек болашақ нақты файлдардың
-(`scene_01.png`, `voiceover.mp3`, `final_video.mp4` және т.б.) орнын белгілейді.
-
-### production_checklist.md (MVP 1.6)
-
-Алдын ала генерацияланған файлдар негізінде ролікті **қолмен** құрастыруға
-арналған қадамдық Markdown-нұсқаулық. Бөлімдері:
-
-1. **Ролик туралы ақпарат** — тақырып, `target_age`, `duration_minutes`,
-   `topic_type`.
-2. **Сценарий және озвучка** — `script.txt`/`voiceover.txt` тексеру, дауысты
-   `assets/audio/voiceover.mp3` етіп сақтау.
-3. **Музыка** — `music_prompt.txt` бойынша оригинал музыканы
-   `assets/audio/music.mp3` етіп сақтау.
-4. **Картинки** — әр `prompts/scene_XX_image_prompt.txt` бойынша суретті
-   `assets/images/scene_XX.png` етіп сақтау.
-5. **Видео-сценалар** — `production_plan.json` бойынша әр сцена видеосын
-   `assets/video/scene_XX.mp4` етіп сақтау.
-6. **Финалды монтаж** — `timeline` бойынша жинау, voiceover + music қосу,
-   `assets/final/final_video.mp4` етіп экспорттау.
-7. **Сапаны тексеру** — персонаж бірізділігі, бөгде контент/бренд жоқтығы,
-   қорқынышты сцена жоқтығы, тіл қарапайымдығы, YouTube Kids қауіпсіздігі.
-8. **YouTube metadata** — `metadata.json` бойынша `title`/`description`/`tags`
-   тексеру.
-
-Әр сцена нақты файл атауларымен және ұзақтығымен тізімделеді (checkbox түрінде).
-
-## Озвучка (MVP 2.1)
-
-Пайплайн озвучканы `voiceover.txt` мәтінінен дайындайды. Провайдер
-`config/settings.json` ішіндегі `voice_provider` арқылы таңдалады: **`mock`**
-(әдепкі, локалды) немесе **`elevenlabs`** (нақты TTS).
-
-### config/settings.json
-
-```json
-{
-  "voice_provider": "mock",
-  "voice_language": "kk",
-  "voice_name": "default_child_friendly",
-  "output_audio_format": "mp3",
-  "elevenlabs": {
-    "api_key_env": "ELEVENLABS_API_KEY",
-    "voice_id": "",
-    "model_id": "",
-    "output_format": "mp3_44100_128"
-  }
-}
-```
-
-- **`voice_provider`** — `mock` (әдепкі) немесе `elevenlabs`.
-- **`voice_language`** — озвучка тілі (мыс. `kk`).
-- **`voice_name`** — дауыс профилі (сипаттама үшін).
-- **`output_audio_format`** — күтілетін аудио формат (мыс. `mp3`).
-- **`elevenlabs`** — тек `elevenlabs` режимінде қажет:
-  - **`api_key_env`** — API key **сақталатын емес**, тек оқылатын орта
-    айнымалысының аты (әдепкі `ELEVENLABS_API_KEY`).
-  - **`voice_id`** — ElevenLabs дауыс идентификаторы (сіздің рұқсатыңыз бар
-    дауыс). Бос болса — қате шығады.
-  - **`model_id`** — (міндетті емес) модель идентификаторы.
-  - **`output_format`** — аудио формат (мыс. `mp3_44100_128`).
-
-Файл болмаса немесе кейбір кілттер жетіспесе, қауіпсіз `mock` әдепкілері
-қолданылады.
-
-### Режим: mock (әдепкі, қауіпсіз, локалды)
-
-Ешбір API шақырылмайды, ешнәрсе желіге жіберілмейді. Әр тақырып үшін:
-
-- `assets/audio/voiceover_request.json` жазылады;
-- `assets/audio/voiceover.mp3.placeholder` маркері қойылады.
-
-Нақты аудио жасалмайды. Валидация бұл режимде placeholder-ды тексереді.
-
-### Режим: elevenlabs (нақты TTS)
-
-ElevenLabs TTS API-ы `voiceover.txt` мәтінін дауысқа айналдырады. Тек Python
-стандартты кітапханасы (`urllib`) қолданылады — қосымша SDK/тәуелділік жоқ.
-Әр тақырып үшін:
-
-- API key `ELEVENLABS_API_KEY` орта айнымалысынан оқылады (файлда сақталмайды);
-- `voice_id` `settings.json`-нан алынады;
-- мәтін `voiceover.txt`-тен алынады;
-- нәтиже `assets/audio/voiceover.mp3` етіп сақталады;
-- `assets/audio/voiceover_request.json` да жазылады (API key онда **жоқ**).
-
-**Қосу қадамдары:**
-
-1. `config/settings.json` ішінде `"voice_provider": "elevenlabs"` қою.
-2. `elevenlabs.voice_id` мәнін толтыру.
-3. API key-ді орта айнымалысы арқылы беру (төмендегі PowerShell мысалы).
-4. `python src/main.py` іске қосу.
-
-**PowerShell-де орта айнымалысын беру:**
-
-```powershell
-# Ағымдағы сессияға ғана:
-$env:ELEVENLABS_API_KEY = "sk-сіздің-кілтіңіз"
-python src/main.py
-
-# Тұрақты (тек пайдаланушы деңгейінде) — жаңа терминал қажет:
-setx ELEVENLABS_API_KEY "sk-сіздің-кілтіңіз"
-```
-
-**Қателерге түсінікті хабарлар (traceback жоқ):**
-
-- API key жоқ болса: `ElevenLabs API key not found. Set the
-  ELEVENLABS_API_KEY environment variable...`
-- `voice_id` бос болса: `ElevenLabs voice_id is empty...`
-
-### Қауіпсіздік және құқық
-
-- **API key-ді ешқашан коммитпеңіз.** Ол тек орта айнымалысында тұрады;
-  кодта да, `config/settings.json`-да да сақталмайды.
-- `.gitignore` `.env` және нақты `*.mp3`/`*.wav` файлдарын елемейді
-  (placeholder-лар қалады).
-- **Бөгде адамдардың, атақты тұлғалардың немесе кейіпкерлердің дауысын
-  пайдаланбаңыз** — тек өзіңіз рұқсаты бар оригинал дауыс.
-
-### voiceover_request.json құрылымы
-
-`voiceover.txt` негізінде дайындалатын TTS сұранысы. Өрістері:
-
-- **`topic_slug`** — тақырыптың қалта аты.
-- **`language`** — озвучка тілі (`settings.json`-нан).
-- **`voice_name`** — дауыс профилі (`settings.json`-нан).
-- **`source_text_file`** — бастапқы мәтін файлы (`"voiceover.txt"`).
-- **`expected_output_file`** — күтілетін аудио жол (`"assets/audio/voiceover.mp3"`).
-- **`text`** — озвучкаға арналған толық таза мәтін.
-
-Бұл файлға сілтеме `production_plan.json` ішіндегі `assets.voiceover_request_file`
-өрісінде де беріледі.
-
-## topic_type — тақырып түрлері
-
-`input/topics.json` файлындағы әр тақырыпта `topic_type` өрісі болады. Ол
-генерацияны тақырып түріне қарай сәл өзгертеді:
-
-| topic_type  | Ерекшелігі                                                        |
-|-------------|--------------------------------------------------------------------|
-| `colors`    | Көбірек түстер мен сол түстегі заттар (алма, күн, шөп және т.б.)   |
-| `animals`   | Көбірек аңдар мен олардың дыбыстары (қоян, аю, қасқыр және т.б.)   |
-| `counting`  | Сандар мен санауды қайталау (1-ден 3, 5, 7, 10-ға дейін)           |
-| `behavior`  | Қарапайым мораль және күнделікті жақсы әдеттер                    |
-
-Белгісіз немесе көрсетілмеген `topic_type` жалпы (general) үлгіге түседі.
-
-## Барлық нәтижелер
-
-Әр тақырып үшін `output/{topic_slug}/` қалтасында 8 файл пайда болады:
-`script.txt`, `song.txt`, `voiceover.txt`, `scenes.json`,
-`image_prompts.json`, `music_prompt.txt`, `metadata.json`,
-`production_plan.json`, сондай-ақ `prompts/` қалтасы.
-
-## Валидация (MVP 1.2)
-
-`python src/main.py` іске қосылғанда, әр тақырып генерацияланғаннан кейін
-`src/validation.py` модулі шыққан нәтижені автоматты тексереді. Тексерулер:
-
-1. Барлық міндетті файлдар бар: `script.txt`, `song.txt`, `voiceover.txt`,
-   `scenes.json`, `image_prompts.json`, `music_prompt.txt`, `metadata.json`.
-2. `scenes.json` — жарамды (valid) JSON.
-3. `metadata.json` — жарамды (valid) JSON.
-4. `scenes.json` ішіндегі әр сценада барлық міндетті өрістер бар:
-   `scene_number`, `title`, `duration_seconds`, `visual_description`,
-   `voiceover_text`, `on_screen_text`, `image_prompt`, `animation_hint`.
-5. Әр сценаның `duration_seconds` мәні 0-ден үлкен.
-6. `voiceover.txt` бос емес.
-7. `script.txt` бос емес.
-8. `metadata.json` мына кілттерді қамтиды: `title`, `description`, `tags`,
-   `language`, `target_age`, `duration_minutes`.
-9. (MVP 1.3) `prompts/` қалтасы бар; ондағы әр сцена үшін
-   `scene_XX_image_prompt.txt` файлы бар; `prompts/music_prompt.txt` және
-   `prompts/video_style_prompt.txt` файлдары бар.
-10. (MVP 1.4) `production_plan.json` бар әрі жарамды (valid) JSON; ішінде
-    `metadata`, `assets`, `scenes`, `timeline`, `quality_notes` бөлімдері бар;
-    `scenes` саны `scenes.json`-мен сәйкес келеді; `timeline`-дегі
-    `start_second`/`end_second` бірізді (сценалар үзіліссіз жалғасады).
-11. (MVP 1.5) `assets/images`, `assets/audio`, `assets/video`, `assets/final`
-    қалталары бар; әр сцена үшін `assets/images/scene_XX.png.placeholder`
-    және `assets/video/scene_XX.mp4.placeholder` бар;
-    `assets/audio/voiceover.mp3.placeholder`,
-    `assets/audio/music.mp3.placeholder`,
-    `assets/final/final_video.mp4.placeholder` бар; сондай-ақ
-    `production_plan.json` ішіндегі жаңа ассет өрістері (assets секциясында
-    және әр сценада) бар.
-12. (MVP 1.6) `production_checklist.md` бар әрі бос емес; ішінде негізгі
-    бөлімдер бар: «Сценарий және озвучка», «Музыка», «Картинки»,
-    «Финалды монтаж», «Сапаны тексеру», «YouTube metadata».
-13. (MVP 2.0) `assets/audio/voiceover_request.json` бар әрі жарамды (valid)
-    JSON; ішінде мына өрістер бар: `topic_slug`, `language`, `voice_name`,
-    `source_text_file`, `expected_output_file`, `text`.
-14. (MVP 2.1) провайдерге байланысты озвучка аудиосы: `mock` режимінде
-    `assets/audio/voiceover.mp3.placeholder` болуы тиіс; `elevenlabs`
-    режимінде нақты `assets/audio/voiceover.mp3` болуы тиіс.
-
-Нәтижесінде консольге әр тақырып бойынша `[PASS]` / `[FAIL]` есебі және
-жиынтық қорытынды шығады. Кемінде бір тақырып тексеруден өтпесе, бағдарлама
-нөлден өзгеше exit-код (`1`) қайтарады — бұл CI/скрипттерге қатені байқауға
-көмектеседі.
-
-Мысал есеп:
-
-```
-============================================================
-VALIDATION REPORT
-============================================================
-[PASS] Түстерді үйренейік (output/tusterdi_uireneiik/)
-[PASS] Орман жануарлары (output/orman_zhanuarlary/)
-[PASS] Санауды үйренейік (output/sanaudy_uireneiik/)
-[PASS] Мейірімді болу (output/meiirimdi_bolu/)
-------------------------------------------------------------
-Summary: 4/4 passed, 0 failed
-============================================================
-```
-
-## Маңызды шектеулер
-
-- Ешбір сыртқы API қолданылмайды (OpenAI, ElevenLabs, YouTube API және т.б. жоқ).
-- YouTube-тан бейне жүктелмейді.
-- Сыртқы тәуелділіктер (third-party пакеттер) қосылмайды — тек Python
-  стандартты кітапханасы.
-- Барлық мазмұн — толығымен ойдан шығарылған (оригинал кейіпкер, оригинал
-  мәтін, оригинал ән). Бұрыннан бар кейіпкерлерге, музыкаға, мәтіндерге
-  немесе кадрларға қатысы жоқ.
-- Генерация коды ішіндегі шаблондар арқылы жүзеге асады, сондықтан жоба
-  ешбір кілтсіз (API key) бірден іске қосылады.
-
-## Талаптар
-
-- Python 3.14 (стандартты кітапхана ғана, қосымша пакеттер керек емес)
-
-## Жобаның құрылымы
-
-```
-kids-content-pipeline/
-├── README.md
-├── .gitignore
-├── config/
-│   └── settings.json      # MVP 2.0: озвучка (TTS) параметрлері
-├── input/
-│   └── topics.json        # тақырыптар тізімі (title + topic_type)
-├── src/
-│   ├── main.py             # кіру нүктесі (генерация + валидация)
-│   ├── generator.py        # шаблонды мазмұн генерациясы
-│   ├── file_writer.py      # output/ қалтасына сақтау
-│   ├── voice_generator.py  # MVP 2.0: озвучкаға дайындық (mock/real)
-│   └── validation.py       # шыққан нәтижені тексеру
-└── output/                 # генерацияланған файлдар (git-те жоқ)
-    └── {topic_slug}/
-        ├── script.txt
-        ├── song.txt
-        ├── voiceover.txt
-        ├── scenes.json
-        ├── image_prompts.json
-        ├── music_prompt.txt
-        ├── metadata.json
-        ├── production_plan.json  # MVP 1.4: біріктірілген өндіріс жоспары
-        ├── production_checklist.md  # MVP 1.6: қолмен құрастыру нұсқаулығы
-        ├── prompts/         # MVP 1.3: бөлек промпт-файлдар
-        │   ├── scene_01_image_prompt.txt
-        │   ├── ...
-        │   ├── music_prompt.txt
-        │   └── video_style_prompt.txt
-        └── assets/          # MVP 1.5: .placeholder маркерлері бар қалта ағашы
-            ├── images/      # scene_XX.png.placeholder
-            ├── audio/       # voiceover.mp3.placeholder, music.mp3.placeholder,
-            │                #   voiceover_request.json (MVP 2.0)
-            ├── video/       # scene_XX.mp4.placeholder
-            └── final/       # final_video.mp4.placeholder
+character_bible.description + style_bible.global_prompt + scene.image_prompt
++ "always the exact same Akzhelen: same bunny identity / eyes / fur / outfit ..."
 ```
 
 ## Іске қосу
 
 ```bash
-python src/main.py
+pip install -r requirements.txt
+
+# Толық эпизод (жаңа task жасайды): толық видео + Shorts + TikTok
+python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode episode
+
+# song.mp3-ты Suno-дан салғаннан кейін қайта рендер + қайта нарезка
+python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode render-only
+
+# Толық видеодан тек Shorts/TikTok-ты қайта қию
+python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode cut-only
 ```
 
-`input/topics.json` файлындағы әр тақырып үшін `output/{topic_slug}/` қалтасы
-жасалады және жоғарыдағы жеті файл сол қалтаға сақталады.
+- **`episode`** — толық құбыр (жаңа task).
+- **`render-only`** — соңғы task-ты пайдаланып, толық видеоны қайта жинайды
+  әрі Shorts/TikTok-ты қайта қияды (мыс. нақты `song.mp3` салынғаннан кейін).
+  Бұрын жүктелген сахна суреттері қайта жүктелмейді.
+- **`cut-only`** — дайын толық видеодан тек Shorts/TikTok-ты қайта қияды.
 
-## Тақырыптарды өзгерту
+## Ән (manual_suno)
 
-`input/topics.json` файлындағы `topics` тізіміне қалаған тақырыптарыңызды
-`title` және `topic_type` (`colors` / `animals` / `counting` / `behavior`)
-өрістерімен қосыңыз:
+`song_provider` әдепкі — `manual_suno`. Ешбір API шақырылмайды. Пайплайн Suno
+үшін дайындықты жасайды, ал әнді өзіңіз Suno-да генерациялап, mp3-ты қолмен
+саласыз:
 
-```json
-{
-  "topics": [
-    { "title": "Түстерді үйренейік", "topic_type": "colors" },
-    { "title": "Орман жануарлары", "topic_type": "animals" },
-    { "title": "Санауды үйренейік", "topic_type": "counting" },
-    { "title": "Мейірімді болу", "topic_type": "behavior" }
-  ]
-}
+1. `python src/main.py --topic "..." --mode episode` іске қосу.
+2. `output/{task}/suno_prompt.txt` (ағылшынша Suno промпты) және
+   `output/{task}/song_lyrics.txt` (қазақша мәтін) ашу.
+3. Suno-да осы промпт + мәтін бойынша **оригинал** ән жасау.
+4. mp3-ты жүктеп, `output/{task}/assets/audio/song.mp3` етіп сақтау.
+5. `python src/main.py --topic "..." --mode render-only` іске қосу — енді
+   толық видео нақты әнмен жиналады, Shorts/TikTok қайта қиылады.
+
+Егер `song.mp3` болмаса, пайплайн үнсіз (silent) draft жинап, ескерту береді:
+`song.mp3 not found. Put Suno export into assets/audio/song.mp3 and rerun render.`
+Бұрыннан бар нақты `song.mp3` ешқашан қайта жазылмайды.
+
+> **Ескерту (лицензия):** Suno-ның тегін (free) тарифі әдетте тек
+> **коммерциялық емес** пайдалануға арналған болуы мүмкін. Жариялау/монетизация
+> алдында Suno-ның ағымдағы шарттарын тексеріңіз, қажет болса — ақылы/commercial
+> тарифке көшіңіз.
+
+## Output құрылымы
+
+```
+output/{task_id}_{topic_slug}/
+  task.json
+  episode_plan.json
+  production_plan.json
+  scenes.json
+  song_lyrics.txt
+  suno_prompt.txt
+  full/
+    youtube_full_16x9.mp4
+  shorts/
+    youtube_shorts_01.mp4
+    youtube_shorts_02.mp4
+  tiktok/
+    tiktok_01.mp4
+    tiktok_02.mp4
+  subtitles/
+    full_video.srt
+    shorts_01.srt
+    tiktok_01.srt
+  assets/
+    audio/    song.mp3 немесе song.mp3.placeholder
+    images/   scene_01.png ...
+    video_scenes/  scene_01.mp4.placeholder ...
+    characters/    character_reference_prompt.txt
+  requests/
+    suno_song_request.json
+    scene_01_image_request.json ...
+    render_request.json
+    shorts_cut_request.json
+    tiktok_cut_request.json
 ```
 
-## Кейінгі қадамдар (осы MVP-ге кірмейді)
+## Пайплайн кезеңдері (EpisodePipeline)
 
-- Мәтінді нақты тілдік модельмен генерациялау (қазір — шаблон негізінде).
-- Суреттерді/дауысты/музыканы нақты генерациялау құралдарымен байланыстыру.
-- Дайын видеоны монтаждау.
+1. `create_task` 2. `load_bibles` 3. `generate_episode_plan`
+4. `generate_song_lyrics` 5. `generate_suno_prompt` 6. `prepare_song_audio`
+7. `generate_storyboard` 8. `generate_scene_image_prompts`
+9. `generate_scene_images` 10. `generate_scene_videos_or_placeholders`
+11. `render_full_youtube_video` 12. `cut_shorts_from_full_video`
+13. `cut_tiktok_from_full_video` 14. `validate_output`
+
+Әр кезеңнің күйі `task.json` ішінде (`stages`, `current_stage`, `status`)
+сақталады.
+
+## Storyboard (scenes.json)
+
+Толық видео үшін 12-20 сахна. Әр сахнада: `scene_number`, `title`,
+`start_second`, `end_second`, `duration_seconds`, `lyric_line`,
+`visual_description`, `image_prompt`, `animation_hint`, `on_screen_text`,
+`short_candidate`. `short_candidate=true` сахналар (әдетте қайырма) Shorts/TikTok
+қиюға негіз болады.
+
+## Провайдерлер (config/settings.json)
+
+- **`song_provider`**: `manual_suno` (әдепкі) немесе `suno_api` (әзірге
+  іске қосылмаған — түсінікті қатемен тоқтайды, unofficial API қолданылмайды).
+- **`image_provider`**: `pollinations` (тегін API-дан `scene_XX.png` жүктейді,
+  тек стандартты `urllib`) немесе `mock` (тек `.placeholder`).
+- **`require_real_images`**: `true` болса — production режимінде (яғни
+  `image_provider` ≠ `mock`) placeholder-ге рұқсат жоқ. Егер `scene_XX.png`
+  жүктелмесе, пайплайн placeholder жазбай, түсінікті **қатемен тоқтайды**, ал
+  валидация да FAIL береді (кез келген placeholder немесе жоқ нақты сурет —
+  қате). `mock` режимінде placeholder-лер әрқашан рұқсат етіледі.
+- **`scene_video_provider`**: `mock` (placeholder). Кейін video AI провайдеріне
+  ауыстыруға болады.
+- **`render_provider`**: `moviepy`.
+
+## Валидация
+
+`validate_output` тексереді: `task.json`; үш bible жүктелгенін;
+`episode_plan.json`; `song_lyrics.txt`/`suno_prompt.txt`; `scenes.json`
+(12-20 сахна); әр сахнаға сурет не placeholder; `full/youtube_full_16x9.mp4`;
+`shorts/youtube_shorts_01.mp4`; `tiktok/tiktok_01.mp4`; промпттарда banned
+brand сөздер жоқтығын; әр сурет промптында **Akzhelen** аты мен басты зайчик
+сипаттамасы бар екенін.
+
+## Талаптар
+
+- Python 3.11+ (сыналған: 3.14)
+- `moviepy`, `pillow` (`requirements.txt`). moviepy рендер үшін ffmpeg
+  қолданады (`imageio-ffmpeg` арқылы автоматты келеді).
+
+## Шектеулер (маңызды)
+
+- YouTube API **қосылмайды**.
+- Бөгде видео **жүктелмейді**.
+- Бөгде ән, аранжировка, ролик, кейіпкер немесе дауыс **көшірілмейді**.
+- Copyrighted/brand style references **қолданылмайды** (Disney, Pixar, Frozen,
+  Mickey, Marvel, DreamWorks).
+- Барлық мазмұн — оригинал: ойдан шығарылған кейіпкер Akzhelen, авторлық мәтін,
+  Suno-да жасалатын оригинал ән.

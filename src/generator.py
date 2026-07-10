@@ -1,67 +1,23 @@
-"""Template-based content generation for kids-content-pipeline.
+"""Episode plan + storyboard + production plan for the Episode Factory.
 
-Everything here is produced from local string templates. There are no
-network calls and no third-party AI services involved. All generated
-text is original and only follows the general style of a children's
-educational cartoon (no existing characters, songs, or footage).
+Everything here is produced from local string templates — no network calls,
+no third-party AI services. The full YouTube video is planned first (12-20
+scenes spread across the whole song duration); Shorts/TikTok are later cut
+out of that full video (see ``shorts_cutter.py``), never generated from
+scratch.
+
+The single original mascot (Akzhelen, from ``character_bible.json``) and the
+shared visual style (``style_bible.json``) are threaded through every scene
+so characters and look stay consistent across the full video and all cuts.
 """
 
 from __future__ import annotations
 
 import re
 
-MASCOT_NAME = "Ақжелең"  # original mascot: a curious little rabbit
-MASCOT_DESC = "қызықшыл әрі мейірімді қоян бала"
-
-# Supported topic types. Anything else falls back to "general".
-TOPIC_TYPES = ("colors", "animals", "counting", "behavior")
-
-TOPIC_TYPE_LABELS = {
-    "colors": "түстер",
-    "animals": "жануарлар",
-    "counting": "санау",
-    "behavior": "тәртіп пен әдеп",
-    "general": "жалпы білім",
-}
-
-# Per-type word banks used to make the generated content noticeably
-# different between topic types.
-_COLOR_ITEMS = [
-    # (color, object, "да/де/та/те" harmony particle for "<object> <particle>")
-    ("қызыл", "алма", "да"),
-    ("сары", "күн", "де"),
-    ("көк", "аспан", "да"),
-    ("жасыл", "шөп", "те"),
-    ("ақ", "бұлт", "та"),
-    ("қызғылт", "гүл", "де"),
-    ("қоңыр", "аю", "да"),
-    ("күлгін", "жүзім", "де"),
-]
-
-_ANIMAL_ITEMS = [
-    ("қоян", "тап-тап"),
-    ("аю", "өө-өө"),
-    ("қасқыр", "уу-уу"),
-    ("тиін", "шық-шық"),
-    ("түлкі", "тәп-тәп"),
-    ("ешкі", "мә-мә"),
-]
-
-_NUMBER_WORDS = ["бір", "екі", "үш", "төрт", "бес", "алты", "жеті", "сегіз", "тоғыз", "он"]
-_COUNTING_TARGETS = [3, 5, 7, 10]
-
-_BEHAVIOR_HABITS = [
-    # (habit label for titles/tags, conjugated verb phrase for voiceover sentences)
-    ("қолды жуу", "қолын жуады"),
-    ("сәлемдесу", "сәлемдеседі"),
-    ("бөлісу", "бөліседі"),
-    ("кешірім сұрау", "кешірім сұрайды"),
-    ("көмектесу", "көмектеседі"),
-    ("рахмет айту", "рахмет айтады"),
-]
-_BEHAVIOR_MORAL = (
-    "Жақсы бала әрдайым мейірімді, сыпайы және өз достарына көмекші болады."
-)
+MIN_SCENES = 12
+MAX_SCENES = 20
+SECONDS_PER_SCENE_TARGET = 12  # ~12s/scene → ~15 scenes for a 180s video
 
 _CYRILLIC_TO_LATIN = {
     "а": "a", "ә": "a", "б": "b", "в": "v", "г": "g", "ғ": "g", "д": "d",
@@ -73,6 +29,31 @@ _CYRILLIC_TO_LATIN = {
     "ю": "yu", "я": "ya",
 }
 
+# Rotating backdrops so the 12-20 scenes are visually varied while always
+# featuring the same original bunny mascot.
+_SCENE_BACKDROPS = [
+    "in a sunny meadow full of pastel flowers, clapping hands to the beat",
+    "in front of a giant fairytale loaf of warm bread on a wooden table, dancing happily",
+    "on a fluffy cloud stage with soft rainbow lights, waving paws",
+    "in a cozy toy kitchen, gently mixing dough with a wooden spoon, big smile",
+    "on a colorful playground with pastel balloons, jumping with joy",
+    "under a bright rainbow in a magical garden, spinning around happily",
+    "next to a warm toy oven with heart-shaped steam clouds, giggling",
+    "in a garden with giant sunflowers, clapping in rhythm",
+    "on a starry night stage with warm fairy lights, waving hello",
+    "surrounded by friendly original forest animal friends, dancing in a circle",
+    "on a soft grassy hill at golden hour, gently swaying",
+    "inside a cozy storybook cottage with pastel furniture, smiling warmly",
+    "by a sparkling little pond with lily pads, hopping playfully",
+    "on a rainbow bridge over fluffy clouds, twirling happily",
+    "in a bright toy garden with oversized pastel tulips, clapping",
+    "near a friendly wooden windmill in a pastel field, waving",
+    "on a picnic blanket with fruit baskets, sharing with a smile",
+    "in a snowy pastel wonderland with soft round hills, giggling",
+    "on a cheerful carousel of pastel horses, waving both paws",
+    "in a flower-filled treehouse with warm lanterns, smiling gently",
+]
+
 
 def slugify(topic: str) -> str:
     """Convert a Kazakh (Cyrillic) topic string into a filesystem-safe slug."""
@@ -82,602 +63,245 @@ def slugify(topic: str) -> str:
     return slug or "topic"
 
 
-def normalize_topic_type(topic_type: str | None) -> str:
-    """Return a supported topic_type, defaulting to 'general' if unknown."""
-    if topic_type in TOPIC_TYPES:
-        return topic_type
-    return "general"
+def _scene_count(duration_seconds: float) -> int:
+    count = round(duration_seconds / SECONDS_PER_SCENE_TARGET)
+    return max(MIN_SCENES, min(MAX_SCENES, count))
 
 
-def _content_beats(topic_type: str) -> list[dict]:
-    """Return topic_type-specific "beats" (small facts) used to build the
-    middle scenes, voiceover lines and image prompts.
+def _scene_durations(duration_seconds: float, scene_count: int) -> list[float]:
+    """Even per-scene durations summing exactly to duration_seconds."""
+    raw = round(duration_seconds / scene_count, 2)
+    durations = [raw for _ in range(scene_count)]
+    durations[-1] = round(duration_seconds - raw * (scene_count - 1), 2)
+    if durations[-1] <= 0:
+        durations[-1] = raw
+    return durations
 
-    Each beat differs by topic_type so the whole pipeline's output is not
-    identical between topics of different types:
-      - colors: more colors + the everyday object that has that color
-      - animals: more animals + the sound each one makes
-      - counting: counting up to a growing target, with repetition
-      - behavior: everyday good habits, ending with a simple moral
+
+def generate_episode_plan(
+    topic: str, brand_bible: dict, character_bible: dict, style_bible: dict,
+) -> dict:
+    """Stage 3: a high-level plan for the whole episode."""
+    full_duration = brand_bible.get("default_full_video_duration_seconds", 180)
+    short_duration = brand_bible.get("default_short_duration_seconds", 45)
+    scenes_count = _scene_count(full_duration)
+    return {
+        "topic": topic,
+        "language": brand_bible.get("language", "kk"),
+        "target_age": brand_bible.get("target_age", "3-5"),
+        "full_video_duration_seconds": full_duration,
+        "short_video_duration_seconds": short_duration,
+        "episode_type": "song_music_video",
+        "main_character": character_bible.get("main_character_name", "Akzhelen"),
+        "style": style_bible.get("visual_style", "soft fairytale 3D cartoon style"),
+        "song_structure": ["intro", "verse", "chorus", "verse", "chorus", "bridge", "chorus", "outro"],
+        "scenes_count": scenes_count,
+        "shorts_strategy": (
+            "Cut vertical 9:16 Shorts and TikTok clips from the finished full "
+            "16:9 video, centered on chorus / high-energy scenes marked "
+            "short_candidate=true. Never regenerate cuts from scratch."
+        ),
+    }
+
+
+_SECTION_TITLES = {"verse": "Шумақ", "chorus": "Қайырма", "outro": "Қорытынды", "intro": "Кіріспе"}
+
+
+def generate_storyboard(
+    topic: str,
+    lyric_lines: list[dict],
+    episode_plan: dict,
+    character_bible: dict,
+) -> list[dict]:
+    """Stage 7: build 12-20 timed scenes covering the full video.
+
+    Each scene: scene_number, title, start_second, end_second,
+    duration_seconds, lyric_line, visual_description, image_prompt,
+    animation_hint, on_screen_text, short_candidate.
+
+    ``image_prompt`` here holds only the scene-specific fragment; the full
+    provider prompt (character + style + this) is assembled in
+    ``image_generator.build_scene_image_prompt``.
     """
-    beats: list[dict] = []
+    mascot = character_bible.get("main_character_name", "Akzhelen")
+    full_duration = episode_plan.get("full_video_duration_seconds", 180)
+    scene_count = episode_plan.get("scenes_count") or _scene_count(full_duration)
+    durations = _scene_durations(full_duration, scene_count)
 
-    if topic_type == "colors":
-        for color, obj, particle in _COLOR_ITEMS:
-            beats.append({
-                "title": f"{color.capitalize()} түс",
-                "visual_description": (
-                    f"{MASCOT_NAME} қолында {obj} ұстап тұр, ол — {color} түсті."
-                ),
-                "voiceover_text": (
-                    f"Мынау {color} түс. Қараңдаршы, {obj} {particle} {color} түсті екен!"
-                ),
-                "on_screen_text": color.upper(),
-                "animation_hint": (
-                    f"{obj} жайлап шайқалады, {color} түс экранда жарқырап көрінеді"
-                ),
-                "duration_seconds": 15,
-            })
-
-    elif topic_type == "animals":
-        for animal, sound in _ANIMAL_ITEMS:
-            beats.append({
-                "title": animal.capitalize(),
-                "visual_description": (
-                    f"{MASCOT_NAME} орманда {animal}-мен кездеседі және онымен танысады."
-                ),
-                "voiceover_text": (
-                    f"Мынау — {animal}. {animal.capitalize()} былай дыбыс шығарады: "
-                    f"{sound}! Қане, бірге қайталайық: {sound}!"
-                ),
-                "on_screen_text": animal.upper(),
-                "animation_hint": (
-                    f"{animal} {sound} дыбысын шығарып, көңілді қимылдайды"
-                ),
-                "duration_seconds": 18,
-            })
-
-    elif topic_type == "counting":
-        for target in _COUNTING_TARGETS:
-            sequence = ", ".join(_NUMBER_WORDS[:target])
-            beats.append({
-                "title": f"{target}-ге дейін санайық",
-                "visual_description": (
-                    f"{MASCOT_NAME} экранда {target} алманы бірінен соң бірін санайды."
-                ),
-                "voiceover_text": (
-                    f"{sequence}! Бәрі бірге қайталайық: {sequence}!"
-                ),
-                "on_screen_text": str(target),
-                "animation_hint": (
-                    f"{target} алма экранда бірінен соң бірі пайда болады, "
-                    "әр санмен бірге сан үлкейіп көрсетіледі"
-                ),
-                "duration_seconds": 10 + target,
-            })
-
-    elif topic_type == "behavior":
-        for habit, habit_verb in _BEHAVIOR_HABITS[:4]:
-            beats.append({
-                "title": f"Әдеп: {habit}",
-                "visual_description": (
-                    f"{MASCOT_NAME} достарымен бірге {habit} дегенді үйренеді."
-                ),
-                "voiceover_text": (
-                    f"Жақсы бала әрқашан {habit_verb}. Сен де осыны ұмытпа!"
-                ),
-                "on_screen_text": habit,
-                "animation_hint": (
-                    f"{MASCOT_NAME} {habit} жасап көрсетеді, жүзінде жылы күлкі"
-                ),
-                "duration_seconds": 15,
-            })
-        beats.append({
-            "title": "Қорытынды мораль",
-            "visual_description": (
-                f"{MASCOT_NAME} балаларға қарап, бүгінгі әңгіменің моральын айтады."
-            ),
-            "voiceover_text": _BEHAVIOR_MORAL,
-            "on_screen_text": "МОРАЛЬ",
-            "animation_hint": f"{MASCOT_NAME} жүрек белгісін көрсетеді",
-            "duration_seconds": 15,
-        })
-
-    else:  # general fallback — keeps the pipeline usable for any topic_type
-        beats.append({
-            "title": "Тақырыппен танысу",
-            "visual_description": f"{MASCOT_NAME} тақырып туралы алғашқы дерегін көрсетеді.",
-            "voiceover_text": "Қане, бірге үйренейік. Мұқият тыңдаңдар!",
-            "on_screen_text": "?",
-            "animation_hint": f"{MASCOT_NAME} қызығушылықпен айналасына қарайды",
-            "duration_seconds": 20,
-        })
-
-    return beats
-
-
-def generate_script(topic: str, topic_type: str = "general") -> str:
-    """Generate a short educational cartoon script in Kazakh."""
-    topic_type = normalize_topic_type(topic_type)
-    label = TOPIC_TYPE_LABELS[topic_type]
-    beats = _content_beats(topic_type)
-    beat_list = "\n".join(f"- {beat['title']}" for beat in beats)
-
-    return f"""ТАҚЫРЫП: {topic}
-ТАҚЫРЫП ТҮРІ: {label}
-КЕЙІПКЕР: {MASCOT_NAME} — {MASCOT_DESC} (авторлық, ойдан шығарылған кейіпкер)
-ҰЗАҚТЫҒЫ: шамамен 3-4 минут
-АУДИТОРИЯ: 3-5 жас аралығындағы балалар
-
-[КІРІСПЕ]
-Сәлем, балақайлар! Мен — {MASCOT_NAME}!
-Бүгін біз бірге "{topic}" тақырыбын үйренеміз.
-Дайынсыңдар ма? Онда жүріңдер, бастайық!
-
-[НЕГІЗГІ БӨЛІМ]
-Бүгін қарастыратын кішкентай тақырыпшалар:
-{beat_list}
-
-{MASCOT_NAME} әр тақырыпша бойынша қарапайым әрі анық түсіндірме береді,
-балаларға арналған баяу және мейірімді ырғақпен, әр қадам сайын балаларды
-қайталауға және жауап беруге шақырады.
-
-[ӘН КЕЗЕҢІ]
-{MASCOT_NAME} мен досы қосылып, "{topic}" туралы қуанышты ән айтады
-(әннің толық мәтіні song.txt файлында).
-
-[ҚОРЫТЫНДЫ]
-{MASCOT_NAME}: "Міне, балақайлар, біз бүгін "{topic}" туралы көп нәрсе үйрендік!"
-{MASCOT_NAME}: "Келесі бейнеге дейін, сау болыңдар! Мейірімді әрі қызықшыл болыңдар!"
-
-[ТИТР]
-Бұл — түгелдей ойдан шығарылған, авторлық оқыту мазмұны.
-Нақты тұлғаларға, брендтерге немесе бұрыннан бар кейіпкерлерге қатысы жоқ.
-"""
-
-
-def generate_song(topic: str, topic_type: str = "general") -> str:
-    """Generate a simple nursery-rhyme-style song/chorus in Kazakh."""
-    topic_type = normalize_topic_type(topic_type)
-    beats = _content_beats(topic_type)
-
-    if topic_type == "colors":
-        extra_verse = ", ".join(color for color, _, _ in _COLOR_ITEMS)
-        extra_verse = f"Түстер деген: {extra_verse} —\nБәрі әдемі, бәрі жарық!"
-    elif topic_type == "animals":
-        extra_verse = "\n".join(
-            f"{animal.capitalize()} дейді: {sound}!" for animal, sound in _ANIMAL_ITEMS[:4]
-        )
-    elif topic_type == "counting":
-        extra_verse = ", ".join(_NUMBER_WORDS) + " —\nБәрін бірге санадық біз!"
-    elif topic_type == "behavior":
-        extra_verse = "\n".join(f"- {habit}" for habit, _ in _BEHAVIOR_HABITS[:4])
-    else:
-        extra_verse = "\n".join(f"- {beat['title']}" for beat in beats)
-
-    return f"""ӘН: "{topic}" туралы қуанышты ән
-ОРЫНДАУШЫ: {MASCOT_NAME}
-СТИЛЬ: жеңіл, көңілді, балалар әні (авторлық мәтін)
-
-[ШУМАҚ 1]
-Кел, балақай, қасыма кел,
-Бірге "{topic}" үйренейік.
-Қолды ұстап, билеп-жырлап,
-Күлкі-думан бөлісейік.
-
-[ҚАЙЫРМА] (2 рет қайталанады)
-Ляй-ляй-ля, біз білеміз,
-"{topic}" жайлы жырлаймыз!
-Ляй-ляй-ля, күн жарқырап,
-Бәрі бірге қуанамыз!
-
-[ШУМАҚ 2 — {TOPIC_TYPE_LABELS[topic_type]}]
-{extra_verse}
-
-[ҚАЙЫРМА] (2 рет қайталанады)
-Ляй-ляй-ля, біз білеміз,
-"{topic}" жайлы жырлаймыз!
-Ляй-ляй-ля, күн жарқырап,
-Бәрі бірге қуанамыз!
-
-[СОҢЫ]
-Рахмет, балақай, бірге болғаның үшін!
-"""
-
-
-def generate_scenes(topic: str, topic_type: str = "general") -> list[dict]:
-    """Generate a structured, detailed scene list for the video.
-
-    Every scene carries: scene_number, title, duration_seconds,
-    visual_description, voiceover_text, on_screen_text, image_prompt,
-    animation_hint.
-    """
-    topic_type = normalize_topic_type(topic_type)
-    base_style = (
-        "flat vector children's cartoon illustration, soft rounded shapes, "
-        "bright pastel colors, simple friendly shapes, no text, no logos, "
-        "no watermark, fully original characters and setting, "
-        "safe and warm mood for toddlers aged 3-5"
-    )
-
-    def make_scene(number: int, title: str, visual: str, voiceover: str,
-                   on_screen: str, animation: str, duration: int) -> dict:
-        image_prompt = (
-            f"{base_style}; scene: {visual}; overall theme: {topic}; "
-            f"topic type: {TOPIC_TYPE_LABELS[topic_type]}"
-        )
-        return {
-            "scene_number": number,
-            "title": title,
-            "duration_seconds": duration,
-            "visual_description": visual,
-            "voiceover_text": voiceover,
-            "on_screen_text": on_screen,
-            "image_prompt": image_prompt,
-            "animation_hint": animation,
-        }
+    if not lyric_lines:
+        lyric_lines = [{"section": "chorus", "text": topic}]
 
     scenes: list[dict] = []
-    n = 1
+    cursor = 0.0
+    for i in range(scene_count):
+        line = lyric_lines[i % len(lyric_lines)]
+        backdrop = _SCENE_BACKDROPS[i % len(_SCENE_BACKDROPS)]
+        number = i + 1
+        duration = durations[i]
+        start = round(cursor, 2)
+        end = round(cursor + duration, 2)
+        cursor = end
 
-    scenes.append(make_scene(
-        n, "Кіріспе",
-        f'{MASCOT_NAME} экранға шығып, балалармен амандасады және "{topic}" тақырыбын таныстырады.',
-        f'Сәлем, балақайлар! Мен — {MASCOT_NAME}! Бүгін біз "{topic}" тақырыбын үйренеміз.',
-        topic,
-        f"{MASCOT_NAME} қолын бұлғап амандасады, айналасында жарқын жарық шашырайды",
-        20,
-    ))
-    n += 1
+        if number == 1:
+            title = "Кіріспе"
+        elif number == scene_count:
+            title = "Қорытынды"
+        else:
+            title = f'{_SECTION_TITLES.get(line["section"], "Сахна")} {number}'
 
-    for beat in _content_beats(topic_type):
-        scenes.append(make_scene(
-            n, beat["title"], beat["visual_description"], beat["voiceover_text"],
-            beat["on_screen_text"], beat["animation_hint"], beat["duration_seconds"],
-        ))
-        n += 1
+        visual_description = (
+            f'{mascot} {backdrop}. Экранда "{line["text"]}" жолы айтылады.'
+        )
+        image_prompt = (
+            f'{mascot} the bunny mascot {backdrop}, acting out the lyric '
+            f'"{line["text"]}", cheerful toddler-friendly moment'
+        )
+        scenes.append({
+            "scene_number": number,
+            "title": title,
+            "start_second": start,
+            "end_second": end,
+            "duration_seconds": duration,
+            "lyric_line": line["text"],
+            "visual_description": visual_description,
+            "image_prompt": image_prompt,
+            "animation_hint": "slow zoom, slight pan, fade in / fade out",
+            "on_screen_text": line["text"],
+            "short_candidate": line["section"] == "chorus",
+        })
 
-    scenes.append(make_scene(
-        n, "Интерактив сәт",
-        "Балаларға экраннан қатысуға шақыру жасалады (қайталау, көрсету немесе жауап беру).",
-        "Ал енді сендер де қайталаңдаршы! Керемет, балақайлар!",
-        "ҚАЙТАЛА!",
-        f"{MASCOT_NAME} экранға жақындап, күтіп тұрғандай бас изейді",
-        25,
-    ))
-    n += 1
-
-    scenes.append(make_scene(
-        n, "Ән кезеңі",
-        f'{MASCOT_NAME} мен досы "{topic}" туралы қуанышты әнді бірге орындайды.',
-        "Ляй-ляй-ля, біз білеміз! Қане, бірге ән салайық!",
-        "ЭН УАҚЫТЫ",
-        f"{MASCOT_NAME} мен досы билеп, қолдарын шапалақтайды, түрлі-түсті шарлар ұшады",
-        45,
-    ))
-    n += 1
-
-    scenes.append(make_scene(
-        n, "Қорытынды",
-        f'{MASCOT_NAME} балаларға "{topic}" туралы не үйренгенін еске салып, жылы сөзбен қоштасады.',
-        f'Міне, балақайлар, біз бүгін "{topic}" туралы көп нәрсе үйрендік! Сау болыңдар!',
-        "САУ БОЛ!",
-        f"{MASCOT_NAME} қоштасып қол бұлғайды, күн ойын алаңында бата бастайды",
-        20,
-    ))
+    # Guarantee at least a couple of short candidates even if the song has no
+    # chorus lines mapped, so Shorts/TikTok always have material to cut.
+    if not any(s["short_candidate"] for s in scenes):
+        for s in scenes[1:3]:
+            s["short_candidate"] = True
 
     return scenes
 
 
-def generate_image_prompts(topic: str, scenes: list[dict]) -> list[dict]:
-    """Extract the per-scene AI image-generation prompts already computed
-    inside generate_scenes() into the standalone image_prompts.json shape."""
-    return [
-        {
-            "scene_number": scene["scene_number"],
-            "scene_title": scene["title"],
-            "prompt": scene["image_prompt"],
-        }
-        for scene in scenes
-    ]
-
-
-def generate_voiceover(scenes: list[dict]) -> str:
-    """Generate the pure narration text (voiceover.txt): only the words to
-    be spoken, in Kazakh, in simple phrases for 3-5 year olds. No scene
-    numbers, titles, or visual descriptions."""
-    lines = [scene["voiceover_text"].strip() for scene in scenes if scene.get("voiceover_text")]
-    return "\n\n".join(lines) + "\n"
-
-
-def generate_music_prompt(topic: str) -> str:
-    """Generate a text prompt describing the background/theme music."""
-    return f"""МУЗЫКАЛЫҚ ПРОМПТ (theme: {topic})
-
-Style: cheerful children's nursery-rhyme song, major key, simple and repetitive
-melody suitable for toddlers aged 3-5.
-Tempo: 100-120 BPM, upbeat but gentle.
-Instruments: ukulele, glockenspiel/xylophone, light hand percussion, soft claps.
-Mood: warm, friendly, playful, encouraging, safe and cozy.
-Vocals: optional soft children's-choir-style vocals singing in Kazakh,
-simple repeating chorus about "{topic}".
-Length: approximately 45-60 seconds, loopable.
-Constraints: fully original composition, no sampling, no existing songs,
-no copyrighted melodies or references.
-"""
-
-
-def generate_video_style_prompt(topic: str, topic_type: str = "general") -> str:
-    """Generate a single overall visual-style prompt for the whole video.
-
-    Describes the shared look of the cartoon: the original mascot, a soft
-    kid-friendly style, bright colors, and toddler safety, with an explicit
-    no-third-party-content constraint."""
-    topic_type = normalize_topic_type(topic_type)
-    label = TOPIC_TYPE_LABELS[topic_type]
-    return f"""VIDEO STYLE PROMPT (theme: {topic} / topic type: {label})
-
-Overall visual style:
-- Flat vector children's cartoon, soft rounded shapes, thick friendly outlines.
-- Bright, warm pastel color palette; cheerful and cozy lighting.
-- Simple, uncluttered backgrounds so young children stay focused.
-- Gentle, smooth animation; slow, calm pacing suitable for toddlers.
-
-Original character:
-- Mascot: {MASCOT_NAME}, {MASCOT_DESC} (a fully original, invented character).
-- Consistent design of {MASCOT_NAME} across every scene.
-
-Audience & safety:
-- Made for children aged 3-5.
-- Kind, positive, non-scary mood; nothing violent, dark, or frightening.
-- Large, clear shapes and faces with friendly expressions.
-
-Constraints (must always hold):
-- No third-party or existing characters.
-- No real brands, logos, trademarks, or watermarks.
-- No copyrighted material, footage, music, or references.
-- Fully original characters, settings, and props only.
-"""
-
-
-def generate_metadata(topic: str, topic_type: str, scenes: list[dict]) -> dict:
-    """Generate metadata.json content: title, description, tags, language,
-    target_age, duration_minutes."""
-    topic_type = normalize_topic_type(topic_type)
-    label = TOPIC_TYPE_LABELS[topic_type]
-
-    total_seconds = sum(scene["duration_seconds"] for scene in scenes)
-    duration_minutes = round(total_seconds / 60, 1)
-
-    type_tags: list[str] = []
-    if topic_type == "colors":
-        type_tags = [color for color, _, _ in _COLOR_ITEMS]
-    elif topic_type == "animals":
-        type_tags = [animal for animal, _ in _ANIMAL_ITEMS]
-    elif topic_type == "counting":
-        type_tags = list(_NUMBER_WORDS)
-    elif topic_type == "behavior":
-        type_tags = [habit for habit, _ in _BEHAVIOR_HABITS]
-
-    tags = [
-        "балаларға арналған мультфильм",
-        "қазақша балалар видеосы",
-        "3-5 жас",
-        label,
-        MASCOT_NAME,
-    ] + type_tags
-
-    description = (
-        f'"{topic}" тақырыбына арналған қазақ тіліндегі оригинал балалар видеосы. '
-        f"{MASCOT_NAME} есімді қоян бала 3-5 жас аралығындағы балаларға {label} "
-        "тақырыбын ойын, ән және қарапайым тілдесу арқылы үйретеді."
-    )
-
+def generate_metadata(topic: str, episode_plan: dict, character_bible: dict) -> dict:
+    mascot = character_bible.get("main_character_name", "Akzhelen")
     return {
         "title": topic,
-        "description": description,
-        "tags": tags,
-        "language": "kk",
-        "target_age": "3-5",
-        "duration_minutes": duration_minutes,
+        "description": (
+            f'"{topic}" тақырыбына арналған қазақ тіліндегі оригинал балалар '
+            f"әні мен анимациялық клип. {mascot} есімді ойдан шығарылған қоян "
+            "мультперсонажы 3-5 жас аралығындағы балаларға арналған қуанышты "
+            "ән мен билеп-жырлау сәттерін ұсынады."
+        ),
+        "tags": [
+            "қазақша балалар әні", "kids song", "балаларға арналған ән",
+            mascot, "toddler song", episode_plan.get("target_age", "3-5"),
+        ],
+        "language": episode_plan.get("language", "kk"),
+        "target_age": episode_plan.get("target_age", "3-5"),
+        "duration_seconds": episode_plan.get("full_video_duration_seconds", 180),
     }
 
 
-def _scene_image_prompt_file(scene: dict) -> str:
-    """Relative path (from the topic dir) to a scene's per-scene image prompt."""
-    return f"prompts/scene_{scene['scene_number']:02d}_image_prompt.txt"
+def _short_windows(scenes: list[dict], short_duration: float, max_clips: int = 2) -> list[dict]:
+    """Group consecutive short_candidate scenes into <= short_duration windows
+    used both for Shorts and TikTok cuts."""
+    windows: list[dict] = []
+    current: list[dict] = []
 
+    def flush():
+        if not current:
+            return
+        start = current[0]["start_second"]
+        end = current[-1]["end_second"]
+        if end - start > short_duration:
+            end = round(start + short_duration, 2)
+        windows.append({
+            "start_second": start,
+            "end_second": end,
+            "duration_seconds": round(end - start, 2),
+            "scene_numbers": [s["scene_number"] for s in current],
+        })
 
-# ---------------------------------------------------------------------------
-# Asset layout (MVP 1.5). These describe the *expected* real asset paths that
-# a later production step would fill in. The pipeline itself only creates
-# empty ".placeholder" markers next to these paths — it never generates real
-# images, audio, or video.
-# ---------------------------------------------------------------------------
-
-ASSET_DIRS = {
-    "images_dir": "assets/images",
-    "audio_dir": "assets/audio",
-    "video_dir": "assets/video",
-    "final_dir": "assets/final",
-}
-EXPECTED_VOICEOVER_FILE = "assets/audio/voiceover.mp3"
-EXPECTED_MUSIC_FILE = "assets/audio/music.mp3"
-EXPECTED_FINAL_VIDEO_FILE = "assets/final/final_video.mp4"
-# (MVP 2.0) The voice-generation request prepared for a later TTS step.
-VOICEOVER_REQUEST_FILE = "assets/audio/voiceover_request.json"
-
-
-def scene_image_file(scene_number: int) -> str:
-    """Expected real image path for a scene (e.g. assets/images/scene_01.png)."""
-    return f"assets/images/scene_{scene_number:02d}.png"
-
-
-def scene_video_file(scene_number: int) -> str:
-    """Expected real video path for a scene (e.g. assets/video/scene_01.mp4)."""
-    return f"assets/video/scene_{scene_number:02d}.mp4"
-
-
-def generate_production_plan(
-    topic: str, topic_type: str, scenes: list[dict], metadata: dict
-) -> dict:
-    """Assemble production_plan.json: a single machine-readable plan tying
-    together metadata, asset file references, per-scene details, a sequential
-    timeline, and quality/safety notes.
-
-    All references are relative paths inside the topic's output directory;
-    nothing here triggers network access or downloads."""
-    plan_scenes = []
-    timeline = []
-    cursor = 0
     for scene in scenes:
-        duration = scene["duration_seconds"]
+        if scene["short_candidate"]:
+            current.append(scene)
+        else:
+            flush()
+            current = []
+    flush()
+
+    if not windows and scenes:
+        # Fallback: first short_duration seconds.
+        end = round(min(short_duration, scenes[-1]["end_second"]), 2)
+        windows.append({
+            "start_second": 0.0, "end_second": end, "duration_seconds": end,
+            "scene_numbers": [s["scene_number"] for s in scenes if s["end_second"] <= end],
+        })
+
+    return windows[:max_clips]
+
+
+def build_production_plan(
+    topic: str,
+    episode_plan: dict,
+    scenes: list[dict],
+    metadata: dict,
+    song_exists: bool,
+) -> dict:
+    """Stage output tying together metadata, asset references, per-scene
+    details, the full-video timeline, and the Shorts/TikTok cut windows."""
+    short_duration = episode_plan.get("short_video_duration_seconds", 45)
+    windows = _short_windows(scenes, short_duration)
+
+    plan_scenes = []
+    for scene in scenes:
         plan_scenes.append({
             "scene_number": scene["scene_number"],
-            "duration_seconds": duration,
             "title": scene["title"],
-            "voiceover_text": scene["voiceover_text"],
+            "start_second": scene["start_second"],
+            "end_second": scene["end_second"],
+            "duration_seconds": scene["duration_seconds"],
+            "lyric_line": scene["lyric_line"],
             "visual_description": scene["visual_description"],
-            "image_prompt_file": _scene_image_prompt_file(scene),
             "animation_hint": scene["animation_hint"],
             "on_screen_text": scene["on_screen_text"],
-            "expected_image_file": scene_image_file(scene["scene_number"]),
-            "expected_video_file": scene_video_file(scene["scene_number"]),
+            "short_candidate": scene["short_candidate"],
+            "expected_image_file": f"assets/images/scene_{scene['scene_number']:02d}.png",
+            "expected_scene_video_file": f"assets/video_scenes/scene_{scene['scene_number']:02d}.mp4",
         })
-        start_second = cursor
-        end_second = cursor + duration
-        timeline.append({
-            "scene_number": scene["scene_number"],
-            "start_second": start_second,
-            "end_second": end_second,
-            "duration_seconds": duration,
-        })
-        cursor = end_second
 
     return {
         "metadata": metadata,
         "assets": {
-            "voiceover_file": "voiceover.txt",
-            "song_file": "song.txt",
-            "music_prompt_file": "music_prompt.txt",
-            "video_style_prompt_file": "prompts/video_style_prompt.txt",
-            "images_dir": ASSET_DIRS["images_dir"],
-            "audio_dir": ASSET_DIRS["audio_dir"],
-            "video_dir": ASSET_DIRS["video_dir"],
-            "final_dir": ASSET_DIRS["final_dir"],
-            "expected_voiceover_file": EXPECTED_VOICEOVER_FILE,
-            "expected_music_file": EXPECTED_MUSIC_FILE,
-            "expected_final_video_file": EXPECTED_FINAL_VIDEO_FILE,
-            "voiceover_request_file": VOICEOVER_REQUEST_FILE,
+            "song_lyrics_file": "song_lyrics.txt",
+            "suno_prompt_file": "suno_prompt.txt",
+            "suno_song_request_file": "requests/suno_song_request.json",
+            "character_reference_prompt_file": "assets/characters/character_reference_prompt.txt",
+            "images_dir": "assets/images",
+            "audio_dir": "assets/audio",
+            "video_scenes_dir": "assets/video_scenes",
+            "expected_song_file": "assets/audio/song.mp3",
+            "song_exists": song_exists,
+            "full_video_file": "full/youtube_full_16x9.mp4",
+            "shorts_dir": "shorts",
+            "tiktok_dir": "tiktok",
+            "subtitles_dir": "subtitles",
         },
         "scenes": plan_scenes,
-        "timeline": timeline,
+        "full_video_timeline": [
+            {
+                "scene_number": s["scene_number"],
+                "start_second": s["start_second"],
+                "end_second": s["end_second"],
+                "duration_seconds": s["duration_seconds"],
+            }
+            for s in scenes
+        ],
+        "short_cut_windows": windows,
         "quality_notes": {
             "original_content": True,
-            "no_external_downloads": True,
+            "shorts_cut_from_full_video": True,
+            "consistent_character": True,
+            "consistent_style": True,
             "no_copyrighted_characters": True,
+            "no_brand_references": True,
             "child_safe": True,
         },
     }
-
-
-def generate_production_checklist(
-    topic: str, topic_type: str, scenes: list[dict], metadata: dict
-) -> str:
-    """Generate production_checklist.md: a clear, step-by-step manual guide
-    for turning the already-generated files into a finished video.
-
-    The section headings here are also what validation.py looks for, so keep
-    them stable if you change wording."""
-    topic_type = normalize_topic_type(topic_type)
-    label = TOPIC_TYPE_LABELS[topic_type]
-    scene_count = len(scenes)
-
-    # Per-scene lines for the image and video steps.
-    image_lines = "\n".join(
-        f"  - [ ] Сцена {scene['scene_number']:02d}: "
-        f"`prompts/scene_{scene['scene_number']:02d}_image_prompt.txt` → "
-        f"`{scene_image_file(scene['scene_number'])}`"
-        for scene in scenes
-    )
-    video_lines = "\n".join(
-        f"  - [ ] Сцена {scene['scene_number']:02d} "
-        f"({scene['duration_seconds']} сек) → "
-        f"`{scene_video_file(scene['scene_number'])}`"
-        for scene in scenes
-    )
-
-    return f"""# Өндіріс чек-парағы (production checklist)
-
-Бұл — қолмен ролик жасауға арналған қадамдық нұсқаулық. Барлық қажетті мәтін,
-промпт және жоспар файлдары осы қалтада алдын ала генерацияланған. Нақты
-сурет/аудио/видео осы пайплайнмен жасалмайды — оларды сіз осы қадамдар бойынша
-өзіңіз (немесе оригинал контент жасайтын құралмен) дайындайсыз.
-
-## 1. Ролик туралы ақпарат
-
-- **Тақырып:** {topic}
-- **target_age:** {metadata.get("target_age", "3-5")}
-- **duration_minutes:** {metadata.get("duration_minutes", "?")}
-- **topic_type:** {topic_type} ({label})
-- **Сцена саны:** {scene_count}
-
-## 2. Сценарий және озвучка
-
-- [ ] `script.txt` тексеру (толық сценарий).
-- [ ] `voiceover.txt` тексеру (тек дауыстап оқитын мәтін).
-- [ ] `voiceover.txt` бойынша дауысты жазып алу немесе генерациялау
-      (оригинал дауыс, қазақ тілінде, 3-5 жасқа қарапайым).
-- [ ] Нәтижені `assets/audio/voiceover.mp3` ретінде сақтау.
-
-## 3. Музыка
-
-- [ ] `music_prompt.txt` ашу.
-- [ ] Промпт бойынша **оригинал** музыка генерациялау (үлгі/сэмпл көшірмесіз).
-- [ ] Нәтижені `assets/audio/music.mp3` ретінде сақтау.
-
-## 4. Картинки
-
-Әр сцена үшін:
-
-{image_lines}
-
-- [ ] Әр `prompts/scene_XX_image_prompt.txt` промптын ашу.
-- [ ] Әр сценаға сурет генерациялау.
-- [ ] Әр суретті `assets/images/scene_XX.png` ретінде сақтау.
-
-## 5. Видео-сценалар
-
-Әр сцена үшін:
-
-{video_lines}
-
-- [ ] `production_plan.json` пайдалану (сцена ұзақтығы мен нұсқаулары).
-- [ ] Әр сценаға қысқа видео жасау.
-- [ ] Әр видеоны `assets/video/scene_XX.mp4` ретінде сақтау.
-
-## 6. Финалды монтаж
-
-- [ ] `production_plan.json` ішіндегі `timeline` бойынша сценаларды рет-ретімен
-      біріктіру.
-- [ ] `assets/audio/voiceover.mp3` қосу.
-- [ ] `assets/audio/music.mp3` қосу (фон ретінде, дауыстан тыныш).
-- [ ] `final_video.mp4` ретінде экспорттау.
-- [ ] Нәтижені `assets/final/final_video.mp4` ретінде сақтау.
-
-## 7. Сапаны тексеру
-
-- [ ] Персонаж (Ақжелең) барлық сценада бірдей көрінеді.
-- [ ] Бөгде персонаждар, брендтер, логотиптер жоқ.
-- [ ] Қорқынышты сценалар жоқ.
-- [ ] Сөйлеу 3-5 жасқа қарапайым және түсінікті.
-- [ ] Музыка оригинал.
-- [ ] Видео YouTube Kids үшін қауіпсіз.
-
-## 8. YouTube metadata
-
-- [ ] `metadata.json` пайдалану.
-- [ ] `title` тексеру: {metadata.get("title", topic)}
-- [ ] `description` тексеру.
-- [ ] `tags` тексеру.
-"""

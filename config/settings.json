@@ -1,12 +1,26 @@
 {
-  "voice_provider": "mock",
-  "voice_language": "kk",
-  "voice_name": "default_child_friendly",
-  "output_audio_format": "mp3",
-  "elevenlabs": {
-    "api_key_env": "ELEVENLABS_API_KEY",
-    "voice_id": "",
-    "model_id": "",
-    "output_format": "mp3_44100_128"
+  "language": "kk",
+  "target_age": "3-5",
+
+  "full_video_width": 1920,
+  "full_video_height": 1080,
+
+  "short_video_width": 1080,
+  "short_video_height": 1920,
+
+  "fps": 24,
+
+  "song_provider": "manual_suno",
+  "image_provider": "pollinations",
+  "scene_video_provider": "mock",
+  "render_provider": "moviepy",
+
+  "image_size": "1024x1024",
+  "require_real_images": true,
+
+  "image_providers": {
+    "pollinations": {
+      "base_url": "https://image.pollinations.ai/prompt"
+    }
   }
 }

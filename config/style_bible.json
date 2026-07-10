@@ -1,0 +1,15 @@
+{
+  "visual_style": "soft fairytale 3D cartoon style",
+  "global_prompt": "soft fairytale 3D cartoon style, big expressive eyes, bright pastel colors, magical warm lighting, family-friendly toddler animation, original bunny mascot, no copyrighted characters, no logos, no brand references",
+  "colors": "bright pastel colors, warm soft lighting",
+  "mood": "kind, cheerful, magical, safe",
+  "camera": "simple clear compositions for toddlers",
+  "banned_words": [
+    "Disney",
+    "Pixar",
+    "Frozen",
+    "Mickey",
+    "Marvel",
+    "DreamWorks"
+  ]
+}
