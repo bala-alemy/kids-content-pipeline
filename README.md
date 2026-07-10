@@ -5,20 +5,35 @@ Factory**. Пайдаланушы тек **тақырып** енгізеді —
 YouTube-видео** жинайды, содан кейін сол толық видеодан **тік 9:16 YouTube
 Shorts** және **TikTok** роликтерін автоматты **нарезка** жасайды.
 
-> The user gives one topic. The system builds the **full YouTube video first**,
-> then cuts Shorts and TikTok clips **out of that full video** — never
-> regenerating vertical clips from scratch. Every output shares the same
-> original mascot and the same visual style.
+> The user gives one topic. The system builds the **full YouTube video first**
+> from **real animated scene clips**, then cuts Shorts and TikTok **out of that
+> full video** — never regenerating vertical clips from scratch. Every output
+> shares the same original mascot and the same visual style.
 
-## Негізгі идея (Episode Factory)
+## Негізгі идея (real animated episode)
 
-1. **Толық видео бірінші.** `full/youtube_full_16x9.mp4` сахна суреттерінен
-   (Ken Burns: баяу zoom + pan + fade) және `song.mp3`-тен жиналады.
-2. **Shorts/TikTok — толық видеодан.** `shorts/` және `tiktok/` роликтері
-   `full/youtube_full_16x9.mp4`-ты қиып, 16:9 → 9:16 форматына қайта жасау
-   арқылы алынады. Бөлек генерация жоқ.
-3. **Бір кейіпкер, бір стиль.** Барлық сахнада бір ғана оригинал зайчик —
-   **Akzhelen**, бірдей визуалды стильде.
+Пайплайн енді статик суреттерден zoom/pan «слайдшоу» жинамайды. Ол нағыз
+анимациялық клип жасайды:
+
+1. **Scene images.** Әр сахнаға сурет (`assets/images/scene_XX.png`).
+2. **Scene videos.** Әр сурет қысқа **анимациялық** клипке айналады
+   (`assets/video_scenes/scene_XX.mp4`) — нақты қозғалыспен (кейіпкер қимылы,
+   камера, фон, аңдар). Бұл клиптерді AI video құралында (немесе кейін API-мен)
+   жасайсыз; `requests/scene_XX_video_prompt.txt` дайын промпт береді.
+3. **Full video.** `full/youtube_full_16x9.mp4` — осы `scene_XX.mp4` клиптерін
+   **біріктіру** арқылы (MoviePy тек біріктіру + song + subtitles + экспорт).
+4. **Shorts/TikTok.** `shorts/` және `tiktok/` — толық видеоны 16:9 → 9:16
+   қиып алу арқылы. Бөлек генерация жоқ.
+
+> **Маңызды (адал ескерту):** статик сурет + zoom/pan — бұл тек **draft**
+> (slideshow), нағыз мультклип емес. **Production видео** үшін нақты
+> `scene_XX.mp4` анимациялық клиптер қажет. Оларды AI video құралымен жасаңыз
+> немесе кейін API қосыңыз. `require_real_scene_videos=true` болғанда, scene
+> videos болмаса, пайплайн статик слайдшоуға түспей, **қатемен тоқтайды**.
+> MoviePy production режимінде анимацияны статик суреттен «имитацияламайды».
+
+**Бір кейіпкер, бір стиль.** Барлық сахнада бір ғана оригинал зайчик —
+**Akzhelen**, бірдей визуалды стильде (character_bible + style_bible арқылы).
 
 ## Кейіпкер мен стиль тұрақтылығы (bibles)
 
@@ -42,26 +57,60 @@ character_bible.description + style_bible.global_prompt + scene.image_prompt
 + "always the exact same Akzhelen: same bunny identity / eyes / fur / outfit ..."
 ```
 
-## Іске қосу
+## Іске қосу (ұсынылатын кезеңдік ағын)
 
 ```bash
 pip install -r requirements.txt
 
-# Толық эпизод (жаңа task жасайды): толық видео + Shorts + TikTok
-python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode episode
+# 1) Жоспар: lyrics, suno_prompt, scenes.json, image prompts, video prompts
+python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode episode-plan
 
-# song.mp3-ты Suno-дан салғаннан кейін қайта рендер + қайта нарезка
+# 2) Ассеттер: scene images + scene video request файлдары
+python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode generate-assets
+
+#    -> Suno-да song.mp3 жасап, assets/audio/song.mp3 етіп саласыз
+#    -> AI video құралында әр scene_XX.mp4 жасап, assets/video_scenes/ ішіне саласыз
+#       (requests/scene_XX_video_prompt.txt промпттарын пайдаланыңыз)
+
+# 3) Толық видеоны scene videos-тан жинау
 python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode render-only
 
-# Толық видеодан тек Shorts/TikTok-ты қайта қию
+# 4) Толық видеодан Shorts/TikTok қию
 python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode cut-only
+
+# Немесе бәрін бірден (scene videos дайын болса ғана толық бітеді):
+python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша балалар әндері" --mode episode
 ```
 
-- **`episode`** — толық құбыр (жаңа task).
-- **`render-only`** — соңғы task-ты пайдаланып, толық видеоны қайта жинайды
-  әрі Shorts/TikTok-ты қайта қияды (мыс. нақты `song.mp3` салынғаннан кейін).
-  Бұрын жүктелген сахна суреттері қайта жүктелмейді.
-- **`cut-only`** — дайын толық видеодан тек Shorts/TikTok-ты қайта қияды.
+- **`episode-plan`** — жаңа task; тек мәтін/жоспар: `song_lyrics.txt`,
+  `suno_prompt.txt`, `scenes.json`, image prompts, scene video prompts/requests.
+  Сурет те, видео да, рендер де жасалмайды.
+- **`generate-assets`** — соңғы task-қа scene images жүктейді және scene video
+  request файлдарын жазады. Рендер жоқ.
+- **`render-only`** — `song.mp3` мен `assets/video_scenes/scene_XX.mp4` талап
+  етеді; толық видеоны scene videos-тан жинайды. Егер scene videos жоқ болса
+  (`require_real_scene_videos=true`), **қатемен тоқтайды**.
+- **`cut-only`** — дайын толық видеодан Shorts/TikTok қияды.
+
+## Scene videos (manual_ai_video)
+
+`scene_video_provider` режимдері (config/settings.json):
+
+- **`manual_ai_video`** (әдепкі) — API шақырылмайды. Әр сахна үшін
+  `requests/scene_XX_video_prompt.txt` (нақты қозғалысты сипаттайтын промпт) және
+  `requests/scene_XX_video_request.json` жазылады. Сіз AI video құралында
+  `assets/video_scenes/scene_XX.mp4` жасайсыз.
+- **`mock`** — тек `scene_XX.mp4.placeholder`. Пайплайнды тексеру үшін ғана.
+- **`slideshow`** — суреттен zoom/pan арқылы `scene_XX.mp4` жасайды. **Тек
+  draft.** `allow_slideshow_fallback=false` болса, production-та тыйым салынған.
+- **`ai_video_api`** — әзірге іске қосылмаған; түсінікті қатемен тоқтайды
+  (`AI video API provider is not configured yet...`). Unofficial API
+  қолданылмайды.
+
+Scene video промпт нақты қозғалысты сипаттайды (character action, camera motion,
+background motion, animals motion, mood, duration) және `static image` /
+`slideshow` / `still frame` / `no movement` / `frozen character` дегенге
+тікелей тыйым салады.
 
 ## Ән (manual_suno)
 
@@ -69,13 +118,13 @@ python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша
 үшін дайындықты жасайды, ал әнді өзіңіз Suno-да генерациялап, mp3-ты қолмен
 саласыз:
 
-1. `python src/main.py --topic "..." --mode episode` іске қосу.
+1. `python src/main.py --topic "..." --mode episode-plan` іске қосу.
 2. `output/{task}/suno_prompt.txt` (ағылшынша Suno промпты) және
    `output/{task}/song_lyrics.txt` (қазақша мәтін) ашу.
 3. Suno-да осы промпт + мәтін бойынша **оригинал** ән жасау.
 4. mp3-ты жүктеп, `output/{task}/assets/audio/song.mp3` етіп сақтау.
-5. `python src/main.py --topic "..." --mode render-only` іске қосу — енді
-   толық видео нақты әнмен жиналады, Shorts/TikTok қайта қиылады.
+5. Scene videos дайын болғанда `--mode render-only` (толық видео нақты әнмен
+   жиналады), содан кейін `--mode cut-only` (Shorts/TikTok).
 
 Егер `song.mp3` болмаса, пайплайн үнсіз (silent) draft жинап, ескерту береді:
 `song.mp3 not found. Put Suno export into assets/audio/song.mp3 and rerun render.`
@@ -111,11 +160,13 @@ output/{task_id}_{topic_slug}/
   assets/
     audio/    song.mp3 немесе song.mp3.placeholder
     images/   scene_01.png ...
-    video_scenes/  scene_01.mp4.placeholder ...
+    video_scenes/  scene_01.mp4 (немесе .placeholder / manual_pending) ...
     characters/    character_reference_prompt.txt
   requests/
     suno_song_request.json
     scene_01_image_request.json ...
+    scene_01_video_prompt.txt ...      # scene video motion промпты
+    scene_01_video_request.json ...
     render_request.json
     shorts_cut_request.json
     tiktok_cut_request.json
@@ -126,20 +177,24 @@ output/{task_id}_{topic_slug}/
 1. `create_task` 2. `load_bibles` 3. `generate_episode_plan`
 4. `generate_song_lyrics` 5. `generate_suno_prompt` 6. `prepare_song_audio`
 7. `generate_storyboard` 8. `generate_scene_image_prompts`
-9. `generate_scene_images` 10. `generate_scene_videos_or_placeholders`
-11. `render_full_youtube_video` 12. `cut_shorts_from_full_video`
-13. `cut_tiktok_from_full_video` 14. `validate_output`
+9. `generate_scene_images` 10. `generate_scene_video_prompts`
+11. `generate_scene_videos` 12. `render_full_youtube_video`
+13. `cut_shorts_from_full_video` 14. `cut_tiktok_from_full_video`
+15. `validate_output`
 
 Әр кезеңнің күйі `task.json` ішінде (`stages`, `current_stage`, `status`)
-сақталады.
+сақталады. `--mode` кезеңдерді таңдап іске қосады (мыс. `episode-plan` тек
+жоспарлау кезеңдерін орындайды, қалғанын `skipped` етеді).
 
 ## Storyboard (scenes.json)
 
 Толық видео үшін 12-20 сахна. Әр сахнада: `scene_number`, `title`,
 `start_second`, `end_second`, `duration_seconds`, `lyric_line`,
-`visual_description`, `image_prompt`, `animation_hint`, `on_screen_text`,
-`short_candidate`. `short_candidate=true` сахналар (әдетте қайырма) Shorts/TikTok
-қиюға негіз болады.
+`visual_description`, `image_prompt`, **`video_prompt`**, **`character_action`**,
+**`camera_motion`**, **`background_motion`**, **`animals_motion`**,
+`on_screen_text`, `short_candidate`. `short_candidate=true` сахналар (әдетте
+қайырма) Shorts/TikTok қиюға негіз болады. Әр сахна ұзақтығы —
+`scene_video_duration_seconds`.
 
 ## Провайдерлер (config/settings.json)
 
@@ -147,23 +202,45 @@ output/{task_id}_{topic_slug}/
   іске қосылмаған — түсінікті қатемен тоқтайды, unofficial API қолданылмайды).
 - **`image_provider`**: `pollinations` (тегін API-дан `scene_XX.png` жүктейді,
   тек стандартты `urllib`) немесе `mock` (тек `.placeholder`).
-- **`require_real_images`**: `true` болса — production режимінде (яғни
-  `image_provider` ≠ `mock`) placeholder-ге рұқсат жоқ. Егер `scene_XX.png`
-  жүктелмесе, пайплайн placeholder жазбай, түсінікті **қатемен тоқтайды**, ал
-  валидация да FAIL береді (кез келген placeholder немесе жоқ нақты сурет —
-  қате). `mock` режимінде placeholder-лер әрқашан рұқсат етіледі.
-- **`scene_video_provider`**: `mock` (placeholder). Кейін video AI провайдеріне
-  ауыстыруға болады.
-- **`render_provider`**: `moviepy`.
+- **`require_real_images`**: `true` болса — production-та (`image_provider` ≠
+  `mock`) placeholder-ге рұқсат жоқ; сурет жүктелмесе пайплайн **қатемен
+  тоқтайды**, валидация да FAIL береді.
+- **`scene_video_provider`**: `manual_ai_video` (әдепкі), `mock`, `slideshow`
+  (draft), `ai_video_api` (заглушка). Жоғарыдағы «Scene videos» бөлімін қараңыз.
+- **`require_real_scene_videos`**: `true` болса — production-та әр сахнаға нақты
+  `scene_XX.mp4` қажет; болмаса пайплайн **қатемен тоқтайды** (статик слайдшоуға
+  түспейді), валидация да FAIL береді (placeholder немесе жоқ видео — қате).
+- **`allow_slideshow_fallback`**: `false` (әдепкі) — scene videos болмаса,
+  slideshow-ге түсуге рұқсат жоқ. `true` болса, draft үшін статик суреттен
+  zoom/pan slideshow жинауға болады (`production_plan.render_source` сонда
+  `static_images` болады).
+- **`scene_video_duration_seconds`**: әр анимациялық сахна клипінің ұзақтығы (6с).
+- **`render_provider`**: `moviepy` (тек біріктіру + song + subtitles + экспорт +
+  нарезка; production-та статик суреттен анимация имитацияламайды).
+
+## production_plan.json (render белгілері)
+
+- **`render_source`**: `"scene_videos"` (нағыз анимациялық клиптерден жиналды)
+  немесе `"static_images"` (slideshow draft).
+- **`slideshow_fallback_used`**: `true`/`false`.
+- **`scene_video_provider`**: қай провайдер таңдалғаны.
+
+`require_real_scene_videos=true` кезінде валидация `render_source` дәл
+`"scene_videos"` болуын және `slideshow_fallback_used=false` болуын талап етеді.
 
 ## Валидация
 
-`validate_output` тексереді: `task.json`; үш bible жүктелгенін;
-`episode_plan.json`; `song_lyrics.txt`/`suno_prompt.txt`; `scenes.json`
-(12-20 сахна); әр сахнаға сурет не placeholder; `full/youtube_full_16x9.mp4`;
+`validate_output` тексереді (режимге қарай): `task.json`; үш bible жүктелгенін;
+`episode_plan.json`; `song_lyrics.txt`/`suno_prompt.txt`; `scenes.json` (12-20
+сахна, motion өрістерімен қоса); әр сахнаға сурет не placeholder;
+`require_real_scene_videos=true` болғанда әр сахнаға нақты бос емес
+`assets/video_scenes/scene_XX.mp4` (placeholder болмауы тиіс);
+`production_plan.json` ішінде `render_source="scene_videos"` әрі
+`slideshow_fallback_used=false`; `full/youtube_full_16x9.mp4`;
 `shorts/youtube_shorts_01.mp4`; `tiktok/tiktok_01.mp4`; промпттарда banned
-brand сөздер жоқтығын; әр сурет промптында **Akzhelen** аты мен басты зайчик
-сипаттамасы бар екенін.
+brand сөздер жоқтығын; әр сурет **және** video промптында **Akzhelen** аты бар
+екенін; video промпттарда `static image`/`slideshow`/`still frame` секілді
+тыйым салынған сөздер жоқтығын.
 
 ## Талаптар
 

@@ -36,8 +36,15 @@ REQUIRED_EPISODE_PLAN_KEYS = (
 
 REQUIRED_SCENE_FIELDS = (
     "scene_number", "title", "start_second", "end_second", "duration_seconds",
-    "lyric_line", "visual_description", "image_prompt", "animation_hint",
+    "lyric_line", "visual_description", "image_prompt", "video_prompt",
+    "character_action", "camera_motion", "background_motion", "animals_motion",
     "on_screen_text", "short_candidate",
+)
+
+# Wording that must NOT appear in a scene video prompt (would mean a static
+# slideshow instead of a real animated clip).
+FORBIDDEN_MOTION_WORDS = (
+    "static image", "slideshow", "still frame", "no movement", "frozen character",
 )
 
 MIN_SCENES = 12
@@ -154,7 +161,7 @@ def validate_output(
     require_real = bool(settings.get("require_real_images", False)) and \
         settings.get("image_provider", "mock") != "mock"
     images_dir = output_dir / "assets" / "images"
-    if isinstance(scenes, list):
+    if settings.get("check_images_present", True) and isinstance(scenes, list):
         for index, scene in enumerate(scenes, start=1):
             number = scene.get("scene_number") if isinstance(scene, dict) else None
             if not isinstance(number, int):
@@ -178,6 +185,30 @@ def validate_output(
                     f"missing image and placeholder for scene {number:02d}"
                 )
 
+    # 6b. per-scene animated videos. When require_real_scene_videos is on (and
+    #     the provider is not the placeholder-only "mock"), every scene must
+    #     have a real, non-empty scene_XX.mp4 and placeholders are a failure.
+    require_real_videos = bool(settings.get("require_real_scene_videos", False)) and \
+        settings.get("scene_video_provider", "manual_ai_video") != "mock"
+    video_scenes_dir = output_dir / "assets" / "video_scenes"
+    if require_real_videos and isinstance(scenes, list):
+        for index, scene in enumerate(scenes, start=1):
+            number = scene.get("scene_number") if isinstance(scene, dict) else None
+            if not isinstance(number, int):
+                number = index
+            real = video_scenes_dir / f"scene_{number:02d}.mp4"
+            placeholder = video_scenes_dir / f"scene_{number:02d}.mp4.placeholder"
+            if not (real.is_file() and real.stat().st_size > 0):
+                result.add_error(
+                    f"require_real_scene_videos is true but scene {number:02d} has "
+                    f"no real animated video (assets/video_scenes/scene_{number:02d}.mp4)"
+                )
+            if placeholder.is_file():
+                result.add_error(
+                    f"require_real_scene_videos is true but scene {number:02d} is a "
+                    f"placeholder (assets/video_scenes/scene_{number:02d}.mp4.placeholder)"
+                )
+
     # 7 & 8. rendered outputs
     render_provider = settings.get("render_provider", "moviepy")
     if render_provider == "moviepy":
@@ -191,7 +222,28 @@ def validate_output(
             if not (path.is_file() and path.stat().st_size > 0):
                 result.add_error(f"missing file: {rel}")
 
-    # 9 & 10. banned words + character consistency in prompts.
+    # 8b. production_plan render source: the full video must have been built
+    #     from scene videos (not static images) when real videos are required.
+    plan_path = output_dir / "production_plan.json"
+    if plan_path.is_file():
+        try:
+            prod_plan = _load_json(plan_path)
+        except json.JSONDecodeError:
+            prod_plan = None
+        if isinstance(prod_plan, dict) and require_real_videos:
+            if prod_plan.get("render_source") != "scene_videos":
+                result.add_error(
+                    "production_plan.json render_source must be \"scene_videos\" "
+                    f"(got {prod_plan.get('render_source')!r}); the full video was "
+                    "not assembled from real scene videos"
+                )
+            if prod_plan.get("slideshow_fallback_used"):
+                result.add_error(
+                    "production_plan.json slideshow_fallback_used is true; a "
+                    "static-image slideshow was used instead of real scene videos"
+                )
+
+    # 9, 10 & 11. banned words + character consistency + motion prompts.
     _check_prompts(output_dir, scenes, banned, mascot, result)
 
     return result
@@ -208,6 +260,7 @@ def _check_prompts(output_dir: Path, scenes, banned: list[str], mascot: str,
         if path.is_file():
             texts_to_scan.append((name, path.read_text(encoding="utf-8")))
 
+    video_prompts: list[tuple[str, str]] = []
     if isinstance(scenes, list):
         for scene in scenes:
             if isinstance(scene, dict):
@@ -215,6 +268,9 @@ def _check_prompts(output_dir: Path, scenes, banned: list[str], mascot: str,
                     (f"scene {scene.get('scene_number')} image_prompt",
                      str(scene.get("image_prompt", "")))
                 )
+                vp = str(scene.get("video_prompt", ""))
+                texts_to_scan.append((f"scene {scene.get('scene_number')} video_prompt", vp))
+                video_prompts.append((f"scene {scene.get('scene_number')} video_prompt", vp))
 
     # Full image request prompts (the exact text sent to the provider).
     requests_dir = output_dir / "requests"
@@ -235,6 +291,24 @@ def _check_prompts(output_dir: Path, scenes, banned: list[str], mascot: str,
         for word in banned:
             if word and word in lowered:
                 result.add_error(f"banned brand word '{word}' found in {label}")
+
+    # 11. scene video prompts must describe real motion — a positive check
+    #     (each names the mascot) is done below; here we forbid the failure
+    #     wording that would produce a static slideshow instead of a clip.
+    #     The prompts intentionally contain a negative clause ("Do not make it
+    #     a static image or slideshow"), so we only flag the standalone
+    #     failure phrases, not that safety clause.
+    for label, vp in video_prompts:
+        lowered = vp.lower()
+        if not vp.strip():
+            result.add_error(f"{label} is empty")
+            continue
+        if "do not make it a static image or slideshow" not in lowered:
+            for bad in FORBIDDEN_MOTION_WORDS:
+                if bad in lowered:
+                    result.add_error(f"forbidden motion wording '{bad}' in {label}")
+        if mascot.lower() not in lowered:
+            result.add_error(f"{label} does not name {mascot}")
 
     # 10. each provider image prompt must name the mascot + keep bunny identity.
     check_targets = image_requests or [

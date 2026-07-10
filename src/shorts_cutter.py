@@ -78,7 +78,10 @@ def _cut(output_dir: Path, scenes: list[dict], production_plan: dict, settings: 
                 audio_codec="aac" if song_used else None, audio=song_used,
                 threads=4, logger=None,
             )
-            clip.close()
+            # NOTE: do not clip.close() here — the derived subclip shares
+            # full_clip's audio/video readers, and closing it would close those
+            # shared readers, breaking the next window's write. The source
+            # full_clip is closed by the enclosing `with` block.
             outputs.append(out_path)
             write_clip_subtitles(output_dir, f"{sub_prefix}_{i:02d}.srt", scenes, start, end)
 

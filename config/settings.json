@@ -12,11 +12,15 @@
 
   "song_provider": "manual_suno",
   "image_provider": "pollinations",
-  "scene_video_provider": "mock",
+  "scene_video_provider": "manual_ai_video",
   "render_provider": "moviepy",
 
   "image_size": "1024x1024",
   "require_real_images": true,
+
+  "require_real_scene_videos": true,
+  "allow_slideshow_fallback": false,
+  "scene_video_duration_seconds": 6,
 
   "image_providers": {
     "pollinations": {

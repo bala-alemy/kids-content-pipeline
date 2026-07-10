@@ -28,7 +28,8 @@ STAGES = [
     "generate_storyboard",
     "generate_scene_image_prompts",
     "generate_scene_images",
-    "generate_scene_videos_or_placeholders",
+    "generate_scene_video_prompts",
+    "generate_scene_videos",
     "render_full_youtube_video",
     "cut_shorts_from_full_video",
     "cut_tiktok_from_full_video",
@@ -145,9 +146,10 @@ def find_latest_task(slug: str) -> Task | None:
 
 
 def get_or_create_task(topic: str, mode: str, slug: str) -> Task:
-    """Episode mode always creates a new task; render-only/cut-only reuse the
-    latest existing task for the slug (falling back to create if none)."""
-    if mode == "episode":
+    """``episode`` / ``episode-plan`` start a new task; ``generate-assets`` /
+    ``render-only`` / ``cut-only`` reuse the latest existing task for the slug
+    (falling back to create if none)."""
+    if mode in ("episode", "episode-plan"):
         return create_task(topic, mode, slug)
 
     existing = find_latest_task(slug)
