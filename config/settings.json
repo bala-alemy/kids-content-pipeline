@@ -81,6 +81,14 @@
     "reframe_mode": "fit_blur",
     "fps": 30,
     "video_codec": "libx264",
-    "audio_codec": "aac"
+    "audio_codec": "aac",
+    "smart_cut_enabled": true,
+    "cut_mode": "smart_silence",
+    "min_clip_duration_seconds": 20,
+    "max_clip_duration_seconds": 45,
+    "silence_threshold_db": -35,
+    "min_silence_duration_seconds": 0.25,
+    "cut_search_window_seconds": 8,
+    "fade_audio_seconds": 0.12
   }
 }
