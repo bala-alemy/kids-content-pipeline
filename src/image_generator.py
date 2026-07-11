@@ -23,6 +23,7 @@ same safe, brand-free visual style.
 
 from __future__ import annotations
 
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -30,6 +31,13 @@ from pathlib import Path
 from file_writer import get_subdir, write_json_file, write_text_file
 
 DEFAULT_POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt"
+
+# Substrings / HTTP codes that indicate the provider ran out of quota/credits
+# (or is rate-limited / needs billing) rather than a transient error.
+QUOTA_KEYWORDS = (
+    "quota", "credit", "credits", "limit", "rate limit", "payment required",
+    "insufficient", "billing",
+)
 
 
 class ImageProviderError(RuntimeError):
@@ -40,6 +48,32 @@ class RealImageRequiredError(ImageProviderError):
     """Raised when require_real_images is on and a real scene image could not
     be produced (e.g. a pollinations download failed). The pipeline stops
     instead of silently falling back to a placeholder."""
+
+
+class ImageQuotaExceededError(ImageProviderError):
+    """Raised when the image provider is out of quota/credits (or rate-limited
+    / needs billing). The pipeline pauses and waits for the user to update
+    credentials/settings, then resume — it never auto-bypasses limits or
+    rotates accounts. ``response`` holds the raw provider error."""
+
+    def __init__(self, message: str, response=None):
+        super().__init__(message)
+        self.response = response
+        self.provider = None
+        self.failed_scene = None
+        self.completed_scenes: list[int] = []
+        self.missing_scenes: list[int] = []
+
+
+def _is_quota_error(code, text: str) -> bool:
+    """True if an HTTP code / error text looks like a quota/credits/limit
+    problem (402 Payment Required, 429 Too Many Requests, or a keyword)."""
+    if code in (402, 429):
+        return True
+    lowered = (text or "").lower()
+    if "402" in lowered or "429" in lowered:
+        return True
+    return any(keyword in lowered for keyword in QUOTA_KEYWORDS)
 
 
 def real_images_required(settings: dict) -> bool:
@@ -156,6 +190,25 @@ def generate_scene_images(
                 results.append({"scene_number": number, "status": "downloaded", "file": image_path})
                 continue
             except Exception as exc:
+                # Distinguish "out of quota/credits" from a transient failure.
+                code, detail = None, str(exc)
+                if isinstance(exc, urllib.error.HTTPError):
+                    code = exc.code
+                    try:
+                        detail = exc.read().decode("utf-8", "replace")
+                    except Exception:
+                        detail = str(exc)
+                if _is_quota_error(code, detail) or _is_quota_error(code, str(exc)):
+                    info = scan_scene_images(output_dir, scenes)
+                    err = ImageQuotaExceededError(
+                        f"scene {number:02d}: image provider quota/credits "
+                        f"exhausted ({exc}).", response=detail,
+                    )
+                    err.provider = provider
+                    err.failed_scene = number
+                    err.completed_scenes = info["ready_numbers"]
+                    err.missing_scenes = info["missing_numbers"]
+                    raise err from None
                 if require_real:
                     # Placeholders are forbidden in production: fail loudly so
                     # the run does not ship with a placeholder scene.
@@ -176,3 +229,42 @@ def generate_scene_images(
         results.append({"scene_number": number, "status": "placeholder", "file": placeholder})
 
     return results
+
+
+def scan_scene_images(output_dir: Path, scenes: list[dict]) -> dict:
+    """Report which scene_XX.png files really exist (non-empty) vs are missing."""
+    images_dir = output_dir / "assets" / "images"
+    ready, missing = [], []
+    for scene in scenes:
+        number = scene["scene_number"]
+        png = images_dir / f"scene_{number:02d}.png"
+        (ready if (png.is_file() and png.stat().st_size > 0) else missing).append(number)
+    return {
+        "total": len(scenes),
+        "ready": len(ready),
+        "missing": len(missing),
+        "ready_numbers": ready,
+        "missing_numbers": missing,
+    }
+
+
+def write_scene_image_checklist(output_dir: Path, scenes: list[dict]) -> dict:
+    """Write scene_image_checklist.md (ready/missing per scene) and return the
+    scan info."""
+    info = scan_scene_images(output_dir, scenes)
+    ready = set(info["ready_numbers"])
+    lines = [
+        "# Scene Image Checklist",
+        "",
+        "| Scene | Status | Output | Prompt |",
+        "|---|---|---|---|",
+    ]
+    for scene in scenes:
+        n = scene["scene_number"]
+        status = "ready" if n in ready else "missing"
+        lines.append(
+            f"| {n:02d} | {status} | assets/images/scene_{n:02d}.png | "
+            f"requests/scene_{n:02d}_image_request.json |"
+        )
+    write_text_file(output_dir, "scene_image_checklist.md", "\n".join(lines) + "\n")
+    return info

@@ -95,6 +95,13 @@ class Task:
         self.data["mode"] = mode
         self._save()
 
+    def set_status(self, status: str, current_stage: str | None = None) -> None:
+        """Set an explicit task status (e.g. "paused_image_quota"/"running")."""
+        self.data["status"] = status
+        if current_stage:
+            self.data["current_stage"] = current_stage
+        self._save()
+
 
 def _slug_from_dirname(dirname: str) -> str:
     # dir name is "{task_id}_{slug}"; task_id is "YYYYmmdd_HHMMSS".

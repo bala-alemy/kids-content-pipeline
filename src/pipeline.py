@@ -41,7 +41,10 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
 
 VALID_MODES = ("episode", "episode-plan", "generate-assets", "render-only",
-               "cut-only", "generate-one-scene-video")
+               "cut-only", "generate-one-scene-video",
+               "generate-scene-images", "resume-scene-images", "check-scene-images")
+
+SCENE_IMAGE_MODES = ("generate-scene-images", "resume-scene-images", "check-scene-images")
 
 
 class PipelineError(RuntimeError):
@@ -74,6 +77,9 @@ class EpisodePipeline:
             raise PipelineError(
                 f"unknown mode: {mode!r}. Valid modes: {', '.join(VALID_MODES)}"
             )
+
+        if mode in SCENE_IMAGE_MODES:
+            return self._run_scene_images_mode(topic, mode)
 
         slug = generator.slugify(topic)
         task = get_or_create_task(topic, mode, slug)
@@ -214,6 +220,88 @@ class EpisodePipeline:
             stage = task.data.get("current_stage", "unknown")
             task.update_stage(stage, "failed", str(exc))
             raise
+
+    def _scene_storyboard(self, topic: str):
+        """Deterministically (re)build the storyboard scenes for image modes."""
+        character, style, brand = self.bibles["character"], self.bibles["style"], self.bibles["brand"]
+        episode_plan = generator.generate_episode_plan(topic, brand, character, style, self.settings)
+        _, lyric_lines = song_generator.generate_song_lyrics(topic, brand)
+        scenes = generator.generate_storyboard(topic, lyric_lines, episode_plan, character, style)
+        return scenes, episode_plan
+
+    def _run_scene_images_mode(self, topic: str, mode: str) -> validation.ValidationResult:
+        """Quota-aware scene-image generation with pause/resume.
+
+        - ``generate-scene-images`` / ``resume-scene-images``: generate only the
+          missing scene_XX.png (existing ones are skipped, never regenerated).
+          On an image quota/credits error the run pauses: it writes
+          image_quota_pause.json, marks task.json paused, prints a clear
+          message, and stops (no traceback, no limit bypass, no account
+          rotation).
+        - ``check-scene-images``: report ready/missing and (re)write
+          scene_image_checklist.md."""
+        slug = generator.slugify(topic)
+        task = get_or_create_task(topic, mode, slug)
+        output_dir = task.task_dir
+        print(f"[task] {task.data['task_id']}  mode={mode}  -> output/{output_dir.name}/")
+
+        self._load_bibles()
+        character, style = self.bibles["character"], self.bibles["style"]
+        scenes, _plan = self._scene_storyboard(topic)
+        write_json_file(output_dir, "scenes.json", scenes)
+
+        result = validation.ValidationResult(topic, slug)
+
+        if mode == "check-scene-images":
+            info = image_generator.write_scene_image_checklist(output_dir, scenes)
+            print(f"scene images: total {info['total']} | ready {info['ready']} | "
+                  f"missing {info['missing']}")
+            print(f"missing scenes: {info['missing_numbers']}")
+            return result
+
+        # generate / resume: write requests + fetch only missing images.
+        image_prompts = image_generator.generate_scene_image_prompts(scenes, character, style)
+        task.update_stage("generate_scene_images", "running")
+        try:
+            image_generator.generate_scene_images(output_dir, scenes, image_prompts, self.settings)
+        except image_generator.ImageQuotaExceededError as exc:
+            self._write_image_quota_pause(output_dir, task, exc)
+            result.add_error("paused: image quota exceeded (see image_quota_pause.json)")
+            return result
+
+        info = image_generator.write_scene_image_checklist(output_dir, scenes)
+        pause_file = output_dir / "image_quota_pause.json"
+        if info["missing"] == 0:
+            if pause_file.is_file():
+                pause_file.unlink()
+            task.update_stage("generate_scene_images", "done")
+            task.set_status("running", "generate_scene_images")
+        print(f"[OK] scene images: ready {info['ready']}/{info['total']}, "
+              f"missing {info['missing']}")
+        if info["missing"]:
+            print(f"missing scenes: {info['missing_numbers']}")
+        return result
+
+    def _write_image_quota_pause(self, output_dir: Path, task, exc) -> None:
+        provider = getattr(exc, "provider", None) or self.settings.get("image_provider")
+        failed = getattr(exc, "failed_scene", None)
+        scene_label = f"{failed:02d}" if isinstance(failed, int) else "??"
+        message = (
+            f"Image quota exceeded on scene {scene_label}. Change image provider "
+            "credentials/settings, then run --mode resume-scene-images."
+        )
+        write_json_file(output_dir, "image_quota_pause.json", {
+            "status": "paused",
+            "reason": "image_quota_exceeded",
+            "provider": provider,
+            "failed_scene": failed,
+            "completed_scenes": getattr(exc, "completed_scenes", []),
+            "missing_scenes": getattr(exc, "missing_scenes", []),
+            "message": message,
+            "error_response": getattr(exc, "response", None),
+        })
+        task.set_status("paused_image_quota", "generate_scene_images")
+        print(f"[PAUSED] {message}")
 
     def _carry_over_render_fields(self, output_dir: Path, production_plan: dict) -> None:
         prior = output_dir / "production_plan.json"

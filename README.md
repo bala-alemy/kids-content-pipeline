@@ -335,6 +335,49 @@ output/{task_id}_{topic_slug}/
 `require_real_scene_videos=true` кезінде валидация `render_source` дәл
 `"scene_videos"` болуын және `slideshow_fallback_used=false` болуын талап етеді.
 
+## Quota-aware image generation (pause/resume)
+
+Проект сам генерирует `scene_XX.png` через `image_provider`. Егер провайдердің
+лимиті/credits/quota бітсе, жоба:
+
+- **лимитті автоматты айналып өтпейді** және **аккаунттарды автоматты
+  ауыстырмайды**;
+- pipeline-ды **паузаға** қояды, прогресті сақтайды және пайдаланушыны
+  хабардар етеді;
+- пайдаланушы **қолмен** image provider credentials/settings-ін жаңартқанша
+  күтеді, содан кейін тоқтаған жерінен жалғастырады.
+
+Quota белгілері (402, 429, немесе `quota`/`credit(s)`/`limit`/`rate limit`/
+`payment required`/`insufficient`/`billing` сөздері) табылса,
+`ImageQuotaExceededError` көтеріліп:
+
+- `output/{task}/image_quota_pause.json` жазылады (`status`, `reason`,
+  `provider`, `failed_scene`, `completed_scenes`, `missing_scenes`, `message`,
+  `error_response`);
+- `task.json` → `status="paused_image_quota"`, `current_stage="generate_scene_images"`;
+- консольге traceback-сіз түсінікті хабар шығады:
+  `[PAUSED] Image quota exceeded on scene XX. Change image provider credentials/settings, then run --mode resume-scene-images.`
+
+Дайын `scene_XX.png` (бос емес) ешқашан қайта жасалмайды — тек жетіспейтіндері
+жасалады.
+
+**Командалар:**
+
+```bash
+# Жетіспейтін scene images жасау (quota бітсе — пауза)
+python src/main.py --topic "..." --mode generate-scene-images
+
+# Күйін көру + scene_image_checklist.md жаңарту
+python src/main.py --topic "..." --mode check-scene-images
+
+# Credentials/settings-ті қолмен жаңартқаннан кейін тоқтаған жерден жалғастыру
+python src/main.py --topic "..." --mode resume-scene-images
+```
+
+`check-scene-images` `scene_image_checklist.md` жазады (әр сахна: ready/missing,
+output, prompt файлы) және total/ready/missing санын көрсетеді. Барлық суреттер
+дайын болғанда `image_quota_pause.json` өшіріліп, task қайта `running` болады.
+
 ## Валидация
 
 `validate_output` тексереді (режимге қарай): `task.json`; үш bible жүктелгенін;
