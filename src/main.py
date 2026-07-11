@@ -32,7 +32,8 @@ if hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from image_generator import ImageProviderError  # noqa: E402
-from pipeline import VALID_MODES, EpisodePipeline, PipelineError  # noqa: E402
+from pipeline import READY_VIDEO_MODES, VALID_MODES, EpisodePipeline, PipelineError  # noqa: E402
+from ready_video_cutter import ReadyVideoError  # noqa: E402
 from scene_video_generator import SceneVideoProviderError  # noqa: E402
 from song_generator import SongProviderError  # noqa: E402
 from validation import format_report  # noqa: E402
@@ -44,7 +45,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="episode-factory",
         description="Kazakh toddler Episode Factory: full YouTube video + Shorts/TikTok cuts.",
     )
-    parser.add_argument("--topic", required=True, help="Episode topic (any language).")
+    parser.add_argument(
+        "--topic", default=None,
+        help="Episode topic (required except for ready-video modes).",
+    )
     parser.add_argument(
         "--mode", default="episode", choices=VALID_MODES,
         help=(
@@ -52,8 +56,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "generate-assets = scene images + video requests; "
             "render-only = assemble full video from scene videos; "
             "cut-only = cut Shorts/TikTok from full video; "
-            "generate-one-scene-video = produce a single scene video (test one "
-            "API call before all scenes)."
+            "generate-one-scene-video = produce a single scene video; "
+            "reframe-ready-video / cut-ready-video = vertical 9:16 from a ready mp4."
         ),
     )
     parser.add_argument(
@@ -61,20 +65,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="1-based scene number for --mode generate-one-scene-video / "
              "generate-one-scene-image (default 1).",
     )
+    parser.add_argument(
+        "--input-video", default=None, dest="input_video",
+        help="Path to a ready .mp4/.mov/.mkv/.webm for --mode "
+             "reframe-ready-video / cut-ready-video.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
+    if args.mode not in READY_VIDEO_MODES and not args.topic:
+        print("\n[ERROR] --topic is required for this mode.")
+        return 1
+
     scene = args.scene if args.scene is not None else (
         1 if args.mode in ("generate-one-scene-video", "generate-one-scene-image")
         else None)
     try:
         pipeline = EpisodePipeline()
-        result = pipeline.run(args.topic, args.mode, scene=scene)
+        result = pipeline.run(args.topic, args.mode, scene=scene,
+                              input_video=args.input_video)
     except (PipelineError, SongProviderError, ImageProviderError,
-            SceneVideoProviderError, RealSceneVideoRequiredError) as exc:
+            SceneVideoProviderError, RealSceneVideoRequiredError,
+            ReadyVideoError) as exc:
         print(f"\n[ERROR] {exc}")
         return 1
     except FileNotFoundError as exc:

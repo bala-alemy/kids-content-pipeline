@@ -72,5 +72,15 @@
     "video_endpoint": "",
     "status_endpoint_template": "",
     "download_url_json_path": ""
+  },
+
+  "ready_video_cutter": {
+    "target_width": 1080,
+    "target_height": 1920,
+    "clip_duration_seconds": 30,
+    "reframe_mode": "fit_blur",
+    "fps": 30,
+    "video_codec": "libx264",
+    "audio_codec": "aac"
   }
 }

@@ -43,11 +43,13 @@ CONFIG_DIR = ROOT / "config"
 VALID_MODES = ("episode", "episode-plan", "generate-assets", "render-only",
                "cut-only", "generate-one-scene-video", "generate-one-scene-image",
                "generate-scene-images", "resume-scene-images", "check-scene-images",
-               "generate-scene-videos", "resume-scene-videos", "check-scene-videos")
+               "generate-scene-videos", "resume-scene-videos", "check-scene-videos",
+               "reframe-ready-video", "cut-ready-video")
 
 SCENE_IMAGE_MODES = ("generate-scene-images", "resume-scene-images",
                      "check-scene-images", "generate-one-scene-image")
 SCENE_VIDEO_MODES = ("generate-scene-videos", "resume-scene-videos", "check-scene-videos")
+READY_VIDEO_MODES = ("reframe-ready-video", "cut-ready-video")
 
 
 class PipelineError(RuntimeError):
@@ -75,12 +77,15 @@ class EpisodePipeline:
         }
         return self.bibles
 
-    def run(self, topic: str, mode: str, scene: int | None = None) -> validation.ValidationResult:
+    def run(self, topic: str, mode: str, scene: int | None = None,
+            input_video: str | None = None) -> validation.ValidationResult:
         if mode not in VALID_MODES:
             raise PipelineError(
                 f"unknown mode: {mode!r}. Valid modes: {', '.join(VALID_MODES)}"
             )
 
+        if mode in READY_VIDEO_MODES:
+            return self._run_ready_video_mode(mode, input_video)
         if mode in SCENE_IMAGE_MODES:
             return self._run_scene_images_mode(topic, mode, scene)
         if mode in SCENE_VIDEO_MODES:
@@ -240,6 +245,30 @@ class EpisodePipeline:
         _, lyric_lines = song_generator.generate_song_lyrics(topic, brand)
         scenes = generator.generate_storyboard(topic, lyric_lines, episode_plan, character, style)
         return scenes, episode_plan
+
+    def _run_ready_video_mode(self, mode: str, input_video: str | None):
+        """Reframe / cut an already-finished video into vertical Shorts. No
+        generation, no API — just ffmpeg reframe (fit_blur) + segmenting."""
+        import ready_video_cutter
+
+        if not input_video:
+            raise PipelineError(
+                "--input-video is required for --mode "
+                f"{mode} (path to a ready .mp4/.mov/.mkv/.webm)."
+            )
+        input_path = Path(input_video)
+        out_root = ROOT / "output" / "ready_video_shorts"
+        result = validation.ValidationResult(input_path.name, input_path.stem)
+
+        if mode == "reframe-ready-video":
+            out_path = out_root / f"{input_path.stem}_vertical_9x16.mp4"
+            ready_video_cutter.reframe_video_to_vertical(input_path, out_path, self.settings)
+            print(f"[OK] vertical 9:16 video -> {out_path}")
+        else:  # cut-ready-video
+            out_dir = out_root / input_path.stem
+            clips = ready_video_cutter.cut_vertical_video(input_path, out_dir, self.settings)
+            print(f"[OK] vertical master + {len(clips)} short(s) -> {out_dir}")
+        return result
 
     def _run_scene_images_mode(self, topic: str, mode: str,
                                scene: int | None = None) -> validation.ValidationResult:

@@ -335,6 +335,37 @@ output/{task_id}_{topic_slug}/
 `require_real_scene_videos=true` кезінде валидация `render_source` дәл
 `"scene_videos"` болуын және `slideshow_fallback_used=false` болуын талап етеді.
 
+## Ready video → Shorts without API
+
+Егер сізде **дайын видео** болса (қолмен жасалған, Grok/Gemini/Flow-дан
+жүктелген, немесе кез келген mp4), оны генерациясыз әрі API-сыз вертикаль 9:16
+Shorts-қа айналдыруға болады. Тек **ffmpeg** қажет (ffmpeg + ffprobe PATH-та
+болуы тиіс; болмаса — түсінікті қате шығады).
+
+1. Дайын видеоны `input/videos/` ішіне саласыз.
+2. **reframe-ready-video** — бір 9:16 файл жасайды (blurred background + fitted
+   foreground). Бүкіл кадр көрінеді — **center crop емес**, `fit_blur`
+   қолданылады, сондықтан маңызды бөліктер қиылмайды:
+
+   ```bash
+   python src/main.py --mode reframe-ready-video --input-video ".\\input\\videos\\my_video.mp4"
+   # -> output/ready_video_shorts/my_video_vertical_9x16.mp4
+   ```
+
+3. **cut-ready-video** — алдымен вертикаль master жасап, оны 30 секундтық
+   Shorts-қа кеседі:
+
+   ```bash
+   python src/main.py --mode cut-ready-video --input-video ".\\input\\videos\\my_video.mp4"
+   # -> output/ready_video_shorts/my_video/  (my_video_vertical_9x16.mp4 + short_01.mp4, short_02.mp4, ...)
+   ```
+
+Баптаулар `config/settings.json` → `ready_video_cutter` (target_width/height,
+clip_duration_seconds, reframe_mode, fps, video_codec, audio_codec). Әдепкі
+`reframe_mode="fit_blur"` — исходный кадр толық көрінеді. Валидация: видео
+табылмаса, кеңейтімі `.mp4/.mov/.mkv/.webm` болмаса, немесе ffmpeg/ffprobe
+жоқ болса — түсінікті қате.
+
 ## Pollinations providers (images + video)
 
 Pollinations.ai арқылы scene images және scene videos жасауға болады. HTTP
