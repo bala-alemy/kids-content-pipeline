@@ -33,6 +33,8 @@ from .ai_video_base import (
     AiVideoProvider,
     AiVideoProviderError,
     AiVideoProviderNotConfiguredError,
+    QuotaExceededError,
+    is_quota_error,
 )
 
 
@@ -153,6 +155,11 @@ class HttpAiVideoProvider(AiVideoProvider):
                 detail_obj = json.loads(detail)
             except Exception:
                 detail_obj = detail
+            if is_quota_error(exc.code, detail):
+                raise QuotaExceededError(
+                    f"AI video API quota/credits/limit reached (HTTP {exc.code})",
+                    response=detail_obj,
+                ) from None
             raise AiVideoProviderError(
                 f"AI video API HTTP {exc.code} for {method} {url}",
                 response=detail_obj,

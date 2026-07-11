@@ -110,6 +110,8 @@ def produce_scene_videos(output_dir: Path, scenes: list[dict], settings: dict,
     api_provider = _api_provider(provider)
     results: list[dict] = []
 
+    from providers.ai_video_base import QuotaExceededError
+
     for scene in scenes:
         number = scene["scene_number"]
         real = video_dir / f"scene_{number:02d}.mp4"
@@ -129,7 +131,17 @@ def produce_scene_videos(output_dir: Path, scenes: list[dict], settings: dict,
             video_renderer.build_slideshow_scene_video(output_dir, scene, settings, real)
             results.append({"scene_number": number, "status": "slideshow", "file": real})
         elif provider in ("http_ai_video", "replicate"):
-            _generate_api_scene_video(api_provider, output_dir, scene, real, settings)
+            try:
+                _generate_api_scene_video(api_provider, output_dir, scene, real, settings)
+            except QuotaExceededError as exc:
+                # Attach progress across ALL scenes, then re-raise for the
+                # pipeline to pause the task (no auto-bypass, no rotation).
+                info = scan_scene_videos(output_dir, scenes)
+                if exc.failed_scene is None:
+                    exc.failed_scene = number
+                exc.completed_scenes = info["ready_numbers"]
+                exc.missing_scenes = info["missing_numbers"]
+                raise
             results.append({"scene_number": number, "status": "generated", "file": real})
         else:  # manual_ai_video: nothing to produce; user creates the file.
             results.append({
@@ -137,6 +149,45 @@ def produce_scene_videos(output_dir: Path, scenes: list[dict], settings: dict,
             })
 
     return results
+
+
+def scan_scene_videos(output_dir: Path, scenes: list[dict]) -> dict:
+    """Report which scene_XX.mp4 files really exist (non-empty) vs are missing."""
+    video_dir = output_dir / "assets" / "video_scenes"
+    ready, missing = [], []
+    for scene in scenes:
+        number = scene["scene_number"]
+        mp4 = video_dir / f"scene_{number:02d}.mp4"
+        (ready if (mp4.is_file() and mp4.stat().st_size > 0) else missing).append(number)
+    return {
+        "total": len(scenes),
+        "ready": len(ready),
+        "missing": len(missing),
+        "ready_numbers": ready,
+        "missing_numbers": missing,
+    }
+
+
+def write_scene_video_checklist(output_dir: Path, scenes: list[dict]) -> dict:
+    """Write scene_video_checklist.md (ready/missing per scene) and return the
+    scan info."""
+    info = scan_scene_videos(output_dir, scenes)
+    ready = set(info["ready_numbers"])
+    lines = [
+        "# Scene Video Checklist",
+        "",
+        "| Scene | Status | Output | Prompt |",
+        "|---|---|---|---|",
+    ]
+    for scene in scenes:
+        n = scene["scene_number"]
+        status = "ready" if n in ready else "missing"
+        lines.append(
+            f"| {n:02d} | {status} | assets/video_scenes/scene_{n:02d}.mp4 | "
+            f"requests/scene_{n:02d}_video_prompt.txt |"
+        )
+    write_text_file(output_dir, "scene_video_checklist.md", "\n".join(lines) + "\n")
+    return info
 
 
 def _api_provider(provider: str):
@@ -157,6 +208,7 @@ def _generate_api_scene_video(provider, output_dir: Path, scene: dict, real: Pat
     from providers.ai_video_base import (
         AiVideoProviderError,
         AiVideoProviderNotConfiguredError,
+        QuotaExceededError,
     )
 
     number = scene["scene_number"]
@@ -166,6 +218,13 @@ def _generate_api_scene_video(provider, output_dir: Path, scene: dict, real: Pat
     except AiVideoProviderNotConfiguredError as exc:
         # Config/secret problem: hard stop for the whole run (clear message).
         raise SceneVideoProviderNotConfiguredError(str(exc)) from None
+    except QuotaExceededError as exc:
+        # Out of quota/credits: mark the failing scene and re-raise so the
+        # caller (produce_scene_videos) can attach completed/missing and the
+        # pipeline can pause. Do NOT auto-bypass limits or rotate accounts.
+        exc.failed_scene = number
+        exc.provider = settings.get("scene_video_provider")
+        raise
     except AiVideoProviderError as exc:
         logs_dir = get_subdir(output_dir, "logs")
         write_json_file(logs_dir, f"scene_{number:02d}_video_error.json", {

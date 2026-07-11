@@ -378,6 +378,48 @@ python src/main.py --topic "..." --mode resume-scene-images
 output, prompt файлы) және total/ready/missing санын көрсетеді. Барлық суреттер
 дайын болғанда `image_quota_pause.json` өшіріліп, task қайта `running` болады.
 
+## Quota-aware video generation (pause/resume)
+
+Дәл суреттер сияқты, жоба `scene_XX.mp4`-ты `scene_video_provider` (replicate /
+http_ai_video) арқылы өзі жасай алады. Провайдердің лимиті/credits/quota бітсе,
+жоба:
+
+- **лимитті автоматты айналып өтпейді**, **аккаунттарды автоматты
+  ауыстырмайды**;
+- pipeline-ды **паузаға** қояды, прогресті сақтайды, хабарлайды;
+- пайдаланушы **қолмен** provider credentials/settings-ін жаңартқанша күтеді,
+  содан кейін тоқтаған жерінен жалғастырады.
+
+Quota белгілері (402, 429, немесе `quota`/`credit(s)`/`limit`/`rate limit`/
+`payment required`/`insufficient`/`billing`) провайдер жауабында табылса,
+`QuotaExceededError` (`AiVideoProviderError`-дан мұраланады) көтеріліп:
+
+- `output/{task}/video_quota_pause.json` жазылады (`status`, `reason`,
+  `provider`, `failed_scene`, `completed_scenes`, `missing_scenes`, `message`,
+  `error_response`);
+- `task.json` → `status="paused_video_quota"`, `current_stage="generate_scene_videos"`;
+- консольге traceback-сіз хабар шығады:
+  `[PAUSED] Video quota exceeded on scene XX. Change provider credentials/settings, then run --mode resume-scene-videos.`
+
+Дайын `scene_XX.mp4` (бос емес) ешқашан қайта жасалмайды — тек жетіспейтіндері.
+
+**Командалар:**
+
+```bash
+# Жетіспейтін scene videos жасау (quota бітсе — пауза)
+python src/main.py --topic "..." --mode generate-scene-videos
+
+# Күйін көру + scene_video_checklist.md жаңарту
+python src/main.py --topic "..." --mode check-scene-videos
+
+# Credentials/settings-ті қолмен жаңартқаннан кейін тоқтаған жерден жалғастыру
+python src/main.py --topic "..." --mode resume-scene-videos
+```
+
+Барлық видеолар дайын болғанда `video_quota_pause.json` өшіріліп, task қайта
+`running` болады. Ескерту: video провайдерлер тегін емес (аккаунт/ключ/credits
+қажет) — жоба ешбір ақылы генерацияны автоматты іске қоспайды.
+
 ## Валидация
 
 `validate_output` тексереді (режимге қарай): `task.json`; үш bible жүктелгенін;

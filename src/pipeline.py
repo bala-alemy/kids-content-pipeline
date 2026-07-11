@@ -42,9 +42,11 @@ CONFIG_DIR = ROOT / "config"
 
 VALID_MODES = ("episode", "episode-plan", "generate-assets", "render-only",
                "cut-only", "generate-one-scene-video",
-               "generate-scene-images", "resume-scene-images", "check-scene-images")
+               "generate-scene-images", "resume-scene-images", "check-scene-images",
+               "generate-scene-videos", "resume-scene-videos", "check-scene-videos")
 
 SCENE_IMAGE_MODES = ("generate-scene-images", "resume-scene-images", "check-scene-images")
+SCENE_VIDEO_MODES = ("generate-scene-videos", "resume-scene-videos", "check-scene-videos")
 
 
 class PipelineError(RuntimeError):
@@ -80,6 +82,8 @@ class EpisodePipeline:
 
         if mode in SCENE_IMAGE_MODES:
             return self._run_scene_images_mode(topic, mode)
+        if mode in SCENE_VIDEO_MODES:
+            return self._run_scene_videos_mode(topic, mode)
 
         slug = generator.slugify(topic)
         task = get_or_create_task(topic, mode, slug)
@@ -161,9 +165,16 @@ class EpisodePipeline:
 
             # Stage 11: produce scene videos (or placeholders / manual-pending)
             if do_scene_videos:
+                from providers.ai_video_base import QuotaExceededError
                 task.update_stage("generate_scene_videos", "running")
-                scene_video_generator.produce_scene_videos(
-                    output_dir, scenes, self.settings, only_scene=only_scene)
+                try:
+                    scene_video_generator.produce_scene_videos(
+                        output_dir, scenes, self.settings, only_scene=only_scene)
+                except QuotaExceededError as exc:
+                    self._write_video_quota_pause(output_dir, task, exc)
+                    result = validation.ValidationResult(topic, slug)
+                    result.add_error("paused: video quota exceeded (see video_quota_pause.json)")
+                    return result
                 task.update_stage("generate_scene_videos", "done")
             else:
                 task.update_stage("generate_scene_videos", "skipped")
@@ -301,6 +312,80 @@ class EpisodePipeline:
             "error_response": getattr(exc, "response", None),
         })
         task.set_status("paused_image_quota", "generate_scene_images")
+        print(f"[PAUSED] {message}")
+
+    def _run_scene_videos_mode(self, topic: str, mode: str) -> validation.ValidationResult:
+        """Quota-aware scene-video generation with pause/resume.
+
+        - ``generate-scene-videos`` / ``resume-scene-videos``: produce only the
+          missing scene_XX.mp4 (existing ones are skipped). On a provider
+          quota/credits error the run pauses: it writes video_quota_pause.json,
+          marks task.json paused, prints a clear message, and stops (no
+          traceback, no limit bypass, no account rotation).
+        - ``check-scene-videos``: report ready/missing and (re)write
+          scene_video_checklist.md."""
+        from providers.ai_video_base import QuotaExceededError
+
+        slug = generator.slugify(topic)
+        task = get_or_create_task(topic, mode, slug)
+        output_dir = task.task_dir
+        print(f"[task] {task.data['task_id']}  mode={mode}  -> output/{output_dir.name}/")
+
+        self._load_bibles()
+        scenes, _plan = self._scene_storyboard(topic)
+        write_json_file(output_dir, "scenes.json", scenes)
+
+        result = validation.ValidationResult(topic, slug)
+
+        if mode == "check-scene-videos":
+            info = scene_video_generator.write_scene_video_checklist(output_dir, scenes)
+            print(f"scene videos: total {info['total']} | ready {info['ready']} | "
+                  f"missing {info['missing']}")
+            print(f"missing scenes: {info['missing_numbers']}")
+            return result
+
+        # generate / resume: write requests + produce only missing videos.
+        scene_video_generator.write_scene_video_requests(output_dir, scenes, self.settings)
+        task.update_stage("generate_scene_videos", "running")
+        try:
+            scene_video_generator.produce_scene_videos(output_dir, scenes, self.settings)
+        except QuotaExceededError as exc:
+            self._write_video_quota_pause(output_dir, task, exc)
+            result.add_error("paused: video quota exceeded (see video_quota_pause.json)")
+            return result
+
+        info = scene_video_generator.write_scene_video_checklist(output_dir, scenes)
+        pause_file = output_dir / "video_quota_pause.json"
+        if info["missing"] == 0:
+            if pause_file.is_file():
+                pause_file.unlink()
+            task.update_stage("generate_scene_videos", "done")
+            task.set_status("running", "generate_scene_videos")
+        print(f"[OK] scene videos: ready {info['ready']}/{info['total']}, "
+              f"missing {info['missing']}")
+        if info["missing"]:
+            print(f"missing scenes: {info['missing_numbers']}")
+        return result
+
+    def _write_video_quota_pause(self, output_dir: Path, task, exc) -> None:
+        provider = getattr(exc, "provider", None) or self.settings.get("scene_video_provider")
+        failed = getattr(exc, "failed_scene", None)
+        scene_label = f"{failed:02d}" if isinstance(failed, int) else "??"
+        message = (
+            f"Video quota exceeded on scene {scene_label}. Change provider "
+            "credentials/settings, then run --mode resume-scene-videos."
+        )
+        write_json_file(output_dir, "video_quota_pause.json", {
+            "status": "paused",
+            "reason": "video_quota_exceeded",
+            "provider": provider,
+            "failed_scene": failed,
+            "completed_scenes": getattr(exc, "completed_scenes", []),
+            "missing_scenes": getattr(exc, "missing_scenes", []),
+            "message": message,
+            "error_response": getattr(exc, "response", None),
+        })
+        task.set_status("paused_video_quota", "generate_scene_videos")
         print(f"[PAUSED] {message}")
 
     def _carry_over_render_fields(self, output_dir: Path, production_plan: dict) -> None:
