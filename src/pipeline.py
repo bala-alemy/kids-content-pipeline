@@ -41,11 +41,12 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
 
 VALID_MODES = ("episode", "episode-plan", "generate-assets", "render-only",
-               "cut-only", "generate-one-scene-video",
+               "cut-only", "generate-one-scene-video", "generate-one-scene-image",
                "generate-scene-images", "resume-scene-images", "check-scene-images",
                "generate-scene-videos", "resume-scene-videos", "check-scene-videos")
 
-SCENE_IMAGE_MODES = ("generate-scene-images", "resume-scene-images", "check-scene-images")
+SCENE_IMAGE_MODES = ("generate-scene-images", "resume-scene-images",
+                     "check-scene-images", "generate-one-scene-image")
 SCENE_VIDEO_MODES = ("generate-scene-videos", "resume-scene-videos", "check-scene-videos")
 
 
@@ -81,7 +82,7 @@ class EpisodePipeline:
             )
 
         if mode in SCENE_IMAGE_MODES:
-            return self._run_scene_images_mode(topic, mode)
+            return self._run_scene_images_mode(topic, mode, scene)
         if mode in SCENE_VIDEO_MODES:
             return self._run_scene_videos_mode(topic, mode)
 
@@ -240,7 +241,8 @@ class EpisodePipeline:
         scenes = generator.generate_storyboard(topic, lyric_lines, episode_plan, character, style)
         return scenes, episode_plan
 
-    def _run_scene_images_mode(self, topic: str, mode: str) -> validation.ValidationResult:
+    def _run_scene_images_mode(self, topic: str, mode: str,
+                               scene: int | None = None) -> validation.ValidationResult:
         """Quota-aware scene-image generation with pause/resume.
 
         - ``generate-scene-images`` / ``resume-scene-images``: generate only the
@@ -270,11 +272,13 @@ class EpisodePipeline:
             print(f"missing scenes: {info['missing_numbers']}")
             return result
 
-        # generate / resume: write requests + fetch only missing images.
+        # generate / resume / one-scene: write requests + fetch only missing.
+        only_scene = scene if mode == "generate-one-scene-image" else None
         image_prompts = image_generator.generate_scene_image_prompts(scenes, character, style)
         task.update_stage("generate_scene_images", "running")
         try:
-            image_generator.generate_scene_images(output_dir, scenes, image_prompts, self.settings)
+            image_generator.generate_scene_images(
+                output_dir, scenes, image_prompts, self.settings, only_scene=only_scene)
         except image_generator.ImageQuotaExceededError as exc:
             self._write_image_quota_pause(output_dir, task, exc)
             result.add_error("paused: image quota exceeded (see image_quota_pause.json)")

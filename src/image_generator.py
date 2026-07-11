@@ -148,14 +148,21 @@ def _download_pollinations_image(base_url: str, prompt: str, width: int, height:
 
 
 def generate_scene_images(
-    output_dir: Path, scenes: list[dict], image_prompts: list[dict], settings: dict
+    output_dir: Path, scenes: list[dict], image_prompts: list[dict], settings: dict,
+    only_scene: int | None = None,
 ) -> list[dict]:
     """Stage 9: write each scene's image request, then download (pollinations)
     or mark a placeholder for scene_XX.png.
 
-    Returns ``[{"scene_number", "status", "file"}]`` where status is
+    ``only_scene`` (1-based) restricts production to a single scene
+    (``--mode generate-one-scene-image``). Returns
+    ``[{"scene_number", "status", "file"}]`` where status is
     "existing", "downloaded", or "placeholder"."""
     provider = settings.get("image_provider", "mock")
+    if only_scene is not None:
+        scenes = [s for s in scenes if s["scene_number"] == only_scene]
+        if not scenes:
+            raise ImageProviderError(f"scene {only_scene} not found in storyboard")
     width, height = _parse_image_size(settings.get("image_size", "1024x1024"))
     base_url = _pollinations_base_url(settings)
     require_real = real_images_required(settings)
@@ -186,11 +193,21 @@ def generate_scene_images(
 
         if provider == "pollinations":
             try:
-                _download_pollinations_image(base_url, prompt, width, height, image_path)
+                from providers.pollinations_image_provider import download_scene_image
+                download_scene_image(prompt, image_path, settings)
                 results.append({"scene_number": number, "status": "downloaded", "file": image_path})
                 continue
             except Exception as exc:
-                # Distinguish "out of quota/credits" from a transient failure.
+                # The provider raises ImageQuotaExceededError directly on quota;
+                # augment it with per-scene progress and re-raise for the pause.
+                if isinstance(exc, ImageQuotaExceededError):
+                    info = scan_scene_images(output_dir, scenes)
+                    exc.provider = provider
+                    exc.failed_scene = number
+                    exc.completed_scenes = info["ready_numbers"]
+                    exc.missing_scenes = info["missing_numbers"]
+                    raise
+                # Otherwise distinguish "out of quota/credits" from a transient failure.
                 code, detail = None, str(exc)
                 if isinstance(exc, urllib.error.HTTPError):
                     code = exc.code

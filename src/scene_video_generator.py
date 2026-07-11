@@ -99,11 +99,12 @@ def produce_scene_videos(output_dir: Path, scenes: list[dict], settings: dict,
             "and place scene videos into assets/video_scenes/, or use "
             "http_ai_video with a configured scene_video_api."
         )
-    if provider not in ("mock", "slideshow", "manual_ai_video", "http_ai_video", "replicate"):
+    if provider not in ("mock", "slideshow", "manual_ai_video", "http_ai_video",
+                        "replicate", "pollinations"):
         raise SceneVideoProviderError(
             f"Unknown scene_video_provider: {provider!r}. Supported: "
             '"mock", "slideshow", "manual_ai_video", "http_ai_video", '
-            '"replicate", "ai_video_api".'
+            '"replicate", "pollinations", "ai_video_api".'
         )
 
     video_dir = get_subdir(get_subdir(output_dir, "assets"), "video_scenes")
@@ -130,7 +131,7 @@ def produce_scene_videos(output_dir: Path, scenes: list[dict], settings: dict,
             import video_renderer
             video_renderer.build_slideshow_scene_video(output_dir, scene, settings, real)
             results.append({"scene_number": number, "status": "slideshow", "file": real})
-        elif provider in ("http_ai_video", "replicate"):
+        elif provider in ("http_ai_video", "replicate", "pollinations"):
             try:
                 _generate_api_scene_video(api_provider, output_dir, scene, real, settings)
             except QuotaExceededError as exc:
@@ -198,6 +199,9 @@ def _api_provider(provider: str):
     if provider == "replicate":
         from providers.replicate_video_provider import ReplicateVideoProvider
         return ReplicateVideoProvider()
+    if provider == "pollinations":
+        from providers.pollinations_video_provider import PollinationsVideoProvider
+        return PollinationsVideoProvider()
     return None
 
 

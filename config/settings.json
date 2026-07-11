@@ -48,5 +48,29 @@
     "pollinations": {
       "base_url": "https://image.pollinations.ai/prompt"
     }
+  },
+
+  "pollinations_image": {
+    "base_url": "https://gen.pollinations.ai",
+    "model": "flux",
+    "width": 1024,
+    "height": 576,
+    "timeout_seconds": 300,
+    "use_auth": false
+  },
+
+  "pollinations_video": {
+    "base_url": "https://gen.pollinations.ai",
+    "model": "seedance",
+    "duration_seconds": 5,
+    "aspect_ratio": "16:9",
+    "timeout_seconds": 900,
+    "use_auth": false,
+    "image_url_mode": "",
+    "upload_url": "",
+    "upload_url_json_path": "",
+    "video_endpoint": "",
+    "status_endpoint_template": "",
+    "download_url_json_path": ""
   }
 }

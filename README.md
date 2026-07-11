@@ -335,6 +335,54 @@ output/{task_id}_{topic_slug}/
 `require_real_scene_videos=true` кезінде валидация `render_source` дәл
 `"scene_videos"` болуын және `slideshow_fallback_used=false` болуын талап етеді.
 
+## Pollinations providers (images + video)
+
+Pollinations.ai арқылы scene images және scene videos жасауға болады. HTTP
+провайдерлер, тек стандартты кітапхана (urllib) қолданылады; лимитті айналып өту
+жоқ, аккаунт ротациясы жоқ.
+
+- **Суреттер:** `config/settings.json` → `"image_provider": "pollinations"`.
+  Баптаулар `pollinations_image` блогында (`base_url`, `model`, `width`,
+  `height`, `timeout_seconds`, `use_auth`).
+- **Видео:** `"scene_video_provider": "pollinations"`. Баптаулар
+  `pollinations_video` блогында (`base_url`, `model`, `duration_seconds`,
+  `aspect_ratio`, `timeout_seconds`, `use_auth`, сондай-ақ image URL үшін
+  `image_url_mode`/`upload_url`/`upload_url_json_path` және
+  `video_endpoint`/`status_endpoint_template`/`download_url_json_path`).
+
+**API key (опционалды):** тек `use_auth: true` болғанда қажет. Кілт **тек**
+`POLLINATIONS_API_KEY` env-тен алынады (settings.json-да сақталмайды). `use_auth`
+`false` болса — провайдер кілтсіз жұмыс істейді; `true` болып, кілт жоқ болса —
+түсінікті қатемен тоқтайды.
+
+```powershell
+$env:POLLINATIONS_API_KEY = "..."   # тек use_auth=true болғанда
+```
+
+**Video image URL талабы:** video endpoint әдетте **public** сурет URL-ін
+талап етеді, ал бізде локалды `scene_XX.png`. `upload_image_if_needed` тек
+расталған механизм бапталғанда (`image_url_mode="upload"` + `upload_url`) URL
+қайтарады. Расталмаған upload endpoint **hardcode етілмейді** — бапталмаса,
+провайдер түсінікті қатемен тоқтайды:
+`Pollinations video provider requires public image URL or upload support.
+Configure image_url_mode/upload_url before running.`
+
+Quota/limit (402/429 немесе `quota`/`credit`/`limit`/...) кездессе — бар
+quota-aware pause/resume логикасы қолданылады (`ImageQuotaExceededError` /
+`QuotaExceededError`).
+
+**Қауіпсіз ағын (нақты генерацияны кезең-кезеңмен тексеру):**
+
+```bash
+python src/main.py --topic "..." --mode episode-plan
+python src/main.py --topic "..." --mode generate-scene-images
+python src/main.py --topic "..." --mode check-scene-images
+# бір сурет / бір видеоны алдымен сынау (credits үнемдеу):
+python src/main.py --topic "..." --mode generate-one-scene-image --scene 1
+python src/main.py --topic "..." --mode generate-one-scene-video --scene 1
+python src/main.py --topic "..." --mode check-scene-videos
+```
+
 ## Quota-aware image generation (pause/resume)
 
 Проект сам генерирует `scene_XX.png` через `image_provider`. Егер провайдердің

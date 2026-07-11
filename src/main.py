@@ -58,7 +58,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--scene", type=int, default=None,
-        help="1-based scene number for --mode generate-one-scene-video (default 1).",
+        help="1-based scene number for --mode generate-one-scene-video / "
+             "generate-one-scene-image (default 1).",
     )
     return parser.parse_args(argv)
 
@@ -67,7 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     scene = args.scene if args.scene is not None else (
-        1 if args.mode == "generate-one-scene-video" else None)
+        1 if args.mode in ("generate-one-scene-video", "generate-one-scene-image")
+        else None)
     try:
         pipeline = EpisodePipeline()
         result = pipeline.run(args.topic, args.mode, scene=scene)
