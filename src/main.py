@@ -51,8 +51,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "episode = full run; episode-plan = lyrics/prompts/scenes only; "
             "generate-assets = scene images + video requests; "
             "render-only = assemble full video from scene videos; "
-            "cut-only = cut Shorts/TikTok from full video."
+            "cut-only = cut Shorts/TikTok from full video; "
+            "generate-one-scene-video = produce a single scene video (test one "
+            "API call before all scenes)."
         ),
+    )
+    parser.add_argument(
+        "--scene", type=int, default=None,
+        help="1-based scene number for --mode generate-one-scene-video (default 1).",
     )
     return parser.parse_args(argv)
 
@@ -60,9 +66,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
+    scene = args.scene if args.scene is not None else (
+        1 if args.mode == "generate-one-scene-video" else None)
     try:
         pipeline = EpisodePipeline()
-        result = pipeline.run(args.topic, args.mode)
+        result = pipeline.run(args.topic, args.mode, scene=scene)
     except (PipelineError, SongProviderError, ImageProviderError,
             SceneVideoProviderError, RealSceneVideoRequiredError) as exc:
         print(f"\n[ERROR] {exc}")

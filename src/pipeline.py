@@ -40,7 +40,8 @@ from task_manager import get_or_create_task
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
 
-VALID_MODES = ("episode", "episode-plan", "generate-assets", "render-only", "cut-only")
+VALID_MODES = ("episode", "episode-plan", "generate-assets", "render-only",
+               "cut-only", "generate-one-scene-video")
 
 
 class PipelineError(RuntimeError):
@@ -68,7 +69,7 @@ class EpisodePipeline:
         }
         return self.bibles
 
-    def run(self, topic: str, mode: str) -> validation.ValidationResult:
+    def run(self, topic: str, mode: str, scene: int | None = None) -> validation.ValidationResult:
         if mode not in VALID_MODES:
             raise PipelineError(
                 f"unknown mode: {mode!r}. Valid modes: {', '.join(VALID_MODES)}"
@@ -79,9 +80,13 @@ class EpisodePipeline:
         output_dir = task.task_dir
         print(f"[task] {task.data['task_id']}  mode={mode}  -> output/{output_dir.name}/")
 
-        do_video_requests = mode in ("episode", "episode-plan", "generate-assets")
+        one_scene = mode == "generate-one-scene-video"
+        only_scene = scene if one_scene else None
+        do_video_requests = mode in ("episode", "episode-plan", "generate-assets",
+                                     "generate-one-scene-video")
         do_images = mode in ("episode", "generate-assets")
-        do_scene_videos = mode in ("episode", "generate-assets")
+        do_scene_videos = mode in ("episode", "generate-assets",
+                                   "generate-one-scene-video")
         do_render = mode in ("episode", "render-only")
         do_cut = mode in ("episode", "cut-only")
 
@@ -151,7 +156,8 @@ class EpisodePipeline:
             # Stage 11: produce scene videos (or placeholders / manual-pending)
             if do_scene_videos:
                 task.update_stage("generate_scene_videos", "running")
-                scene_video_generator.produce_scene_videos(output_dir, scenes, self.settings)
+                scene_video_generator.produce_scene_videos(
+                    output_dir, scenes, self.settings, only_scene=only_scene)
                 task.update_stage("generate_scene_videos", "done")
             else:
                 task.update_stage("generate_scene_videos", "skipped")
@@ -236,4 +242,8 @@ class EpisodePipeline:
         elif mode == "render-only":
             # Full video built here, but Shorts/TikTok are cut later.
             eff.update(render_provider="none")
+        elif mode == "generate-one-scene-video":
+            # Single-scene test: don't demand all scene videos or a render.
+            eff.update(render_provider="none", require_real_images=False,
+                       require_real_scene_videos=False, check_images_present=False)
         return validation.validate_output(topic, slug, output_dir, eff, self.bibles)

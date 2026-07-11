@@ -96,10 +96,21 @@ python src/main.py --topic "Қуыр-қуыр, қуырмаш — Қазақша
 
 `scene_video_provider` режимдері (config/settings.json):
 
-- **`manual_ai_video`** (әдепкі) — API шақырылмайды. Әр сахна үшін
-  `requests/scene_XX_video_prompt.txt` (нақты қозғалысты сипаттайтын промпт) және
-  `requests/scene_XX_video_request.json` жазылады. Сіз AI video құралында
-  `assets/video_scenes/scene_XX.mp4` жасайсыз.
+- **`replicate`** (әдепкі) — **автоматты** Replicate image-to-video режимі:
+  `assets/images/scene_XX.png` + `video_prompt` → Replicate моделі →
+  `assets/video_scenes/scene_XX.mp4`. Төмендегі «Replicate provider» бөлімін
+  қараңыз.
+- **`http_ai_video`** — **автоматты** универсал image-to-video API режимі:
+  `assets/images/scene_XX.png` + `video_prompt` → API → `assets/video_scenes/scene_XX.mp4`.
+  Универсал HTTP адаптер (Runway, Kling, Replicate, т.б.) — тек `config/settings.json`
+  ішіндегі `scene_video_api` толтыру арқылы қосылады, кодты өзгертпей. Ағыны:
+  submit → poll → download. API кілті **тек** `AI_VIDEO_API_KEY` env-тен алынады
+  (settings.json-да сақталмайды); SSL тексеру өшірілмейді; unofficial API жоқ.
+  Қате болса — жауап `logs/scene_XX_video_error.json`-ға сақталады.
+- **`manual_ai_video`** — **уақытша қолмен режим**: API шақырылмайды, тек
+  `requests/scene_XX_video_prompt.txt` + `requests/scene_XX_video_request.json`
+  жазылады, ал `assets/video_scenes/scene_XX.mp4`-ты сіз өзіңіз AI video құралында
+  жасап саласыз.
 - **`mock`** — тек `scene_XX.mp4.placeholder`. Пайплайнды тексеру үшін ғана.
 - **`slideshow`** — суреттен zoom/pan арқылы `scene_XX.mp4` жасайды. **Тек
   draft.** `allow_slideshow_fallback=false` болса, production-та тыйым салынған.
@@ -111,6 +122,102 @@ Scene video промпт нақты қозғалысты сипаттайды (c
 background motion, animals motion, mood, duration) және `static image` /
 `slideshow` / `still frame` / `no movement` / `frozen character` дегенге
 тікелей тыйым салады.
+
+### Replicate provider (`scene_video_provider="replicate"`)
+
+Нақты Replicate image-to-video моделі арқылы автоматты генерация. Тек Python
+стандартты кітапханасы (urllib) қолданылады; ағыны: prediction жасау → poll →
+mp4 жүктеу.
+
+1. **API токен** — тек env арқылы (файлда сақталмайды):
+
+   ```powershell
+   $env:REPLICATE_API_TOKEN = "r8_..."   # осы сессияға ғана
+   # немесе тұрақты: setx REPLICATE_API_TOKEN "r8_..."
+   ```
+
+   Токен жоқ болса: `REPLICATE_API_TOKEN is not set`.
+
+2. **Модель таңдау** — Replicate-тегі image-to-video модельдерінің бірін таңдап,
+   `config/settings.json` → `replicate_video.model` толтырыңыз. Формат:
+   `"owner/name"` (соңғы нұсқасы) немесе `"owner/name:version"`. Әдепкі мән
+   `"заполним_позже"` — оны нақты модельге ауыстырмасаңыз, түсінікті қатемен
+   тоқтайды. Қалған баптаулар: `api_base_url`, `poll_interval_seconds`,
+   `poll_timeout_seconds`, `duration_seconds`, `aspect_ratio`.
+
+   **Input өрістерін модельге бейімдеу.** Әр модельдің input өрістерінің аттары
+   әртүрлі. Провайдер логикалық өрістерді (`prompt`, `image`, `duration`,
+   `aspect_ratio`) модель күтетін кілттерге `input_mapping` арқылы аударады.
+   `config/settings.json` → `replicate_video`-қа қосыңыз:
+
+   ```json
+   "input_mapping": {
+     "prompt": "prompt",
+     "image": "first_frame_image",
+     "duration": "duration",
+     "aspect_ratio": ""
+   },
+   "default_input": {
+     "resolution": "720p",
+     "fps": 24
+   }
+   ```
+
+   - `input_mapping.image = "first_frame_image"` болса — сурет `first_frame_image`
+     деген кілтпен жіберіледі.
+   - Мән **бос/null** болса (мыс. `"aspect_ratio": ""`) — ол өріс мүлдем
+     жіберілмейді (модель оны қабылдамаса).
+   - `input_mapping` көрсетілмесе — әдепкі аттар қолданылады
+     (`prompt`/`image`/`duration`/`aspect_ratio`).
+   - `default_input` — модельге сол күйінде жіберілетін қосымша тұрақты өрістер
+     (мыс. `resolution`, `fps`). Соңғы input = `default_input` + аударылған
+     өрістер (аттас болса, аударылған өріс басым).
+
+   Модельдің Replicate беттіндегі «Input schema»-сына қарап, дұрыс кілт аттарын
+   қойыңыз.
+
+3. **Алдымен бір сахнаны тексеріңіз** (барлық 20-сын емес — әр генерация
+   credits жұмсайды):
+
+   ```bash
+   python src/main.py --topic "..." --mode generate-one-scene-video --scene 1
+   ```
+
+   Нәтиже дұрыс болса ғана `--mode generate-assets` (немесе `episode`) арқылы
+   барлық сахналарды жасаңыз.
+
+Модель шығысының түрлі пішіндері қолдау көрсетіледі (URL жол, URL тізімі, немесе
+`{video/url}` dict) — `extract_video_url` көмегімен. Қате/timeout болса, жауап
+`logs/scene_XX_video_error.json`-ға сақталып, пайплайн тоқтайды (slideshow
+fallback жоқ).
+
+> **Ескерту:** Replicate **тегін емес** — аккаунт, API токен және credits қажет.
+> Бұл жоба ешбір ақылы генерацияны автоматты іске қоспайды; сіз моделі мен
+> токенді өзіңіз бересіз.
+
+### http_ai_video-ты баптау
+
+1. `config/settings.json` → `scene_video_api` ішін нақты сервис бойынша
+   толтырыңыз: `base_url`, `submit_endpoint`, `status_endpoint_template`
+   (мыс. `"/jobs/{job_id}"`), `download_url_json_path` (мыс.
+   `"data.assets.0.url"`), қажет болса `job_id_json_path`, `poll_interval_seconds`,
+   `poll_timeout_seconds`, `request_mode`.
+2. API кілтін env арқылы беріңіз (файлда сақтамаңыз):
+
+   ```powershell
+   $env:AI_VIDEO_API_KEY = "sk-..."   # осы сессияға ғана
+   # немесе тұрақты: setx AI_VIDEO_API_KEY "sk-..."
+   ```
+
+3. `--mode generate-assets` — суреттер + scene videos автоматты жасалады.
+
+Қателер (traceback жоқ, түсінікті хабар):
+`AI_VIDEO_API_KEY is not set` (кілт жоқ) / `AI video API is not configured`
+(`base_url`/`submit_endpoint` бос).
+
+> **Ескерту:** video API әдетте **тегін емес** — аккаунт, API кілт және
+> credits қажет. Бұл жоба ешбір ақылы сервисті автоматты қоспайды; сіз таңдаған
+> сервистің ресми API-ын өзіңіз баптап, кілтіңізді бересіз.
 
 ## Ән (manual_suno)
 

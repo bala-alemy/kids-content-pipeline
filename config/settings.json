@@ -12,7 +12,7 @@
 
   "song_provider": "manual_suno",
   "image_provider": "pollinations",
-  "scene_video_provider": "manual_ai_video",
+  "scene_video_provider": "replicate",
   "render_provider": "moviepy",
 
   "image_size": "1024x1024",
@@ -21,6 +21,28 @@
   "require_real_scene_videos": true,
   "allow_slideshow_fallback": false,
   "scene_video_duration_seconds": 6,
+
+  "scene_video_api": {
+    "provider_name": "http_ai_video",
+    "api_key_env": "AI_VIDEO_API_KEY",
+    "base_url": "",
+    "submit_endpoint": "",
+    "status_endpoint_template": "",
+    "download_url_json_path": "",
+    "job_id_json_path": "",
+    "poll_interval_seconds": 10,
+    "poll_timeout_seconds": 900,
+    "request_mode": "image_to_video"
+  },
+
+  "replicate_video": {
+    "model": "заполним_позже",
+    "api_base_url": "https://api.replicate.com/v1",
+    "poll_interval_seconds": 10,
+    "poll_timeout_seconds": 900,
+    "duration_seconds": 6,
+    "aspect_ratio": "16:9"
+  },
 
   "image_providers": {
     "pollinations": {
